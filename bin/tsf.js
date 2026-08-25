@@ -166,6 +166,17 @@ const COMMANDS = {
       } else {
         console.log(`  Google Ads not set — show reports will have no paid search section`);
       }
+      console.log(`
+  Claude     ${
+        config.anthropic.apiKey
+          ? `${config.anthropic.model} — uploads get read and explained in English`
+          : "no key — columns are matched by name only, which still works"
+      }`);
+      if (!config.anthropic.apiKey) {
+        console.log(`             Set ANTHROPIC_API_KEY to turn it on. Only column names and`);
+        console.log(`             masked value shapes are sent; contact details never leave.`);
+      }
+
       console.log(`  Sign-in    ${config.auth.googleClientId ? "Google configured" : "not configured — local use only, which is the default"}`);
       console.log("");
     },

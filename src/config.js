@@ -105,6 +105,19 @@ export function loadConfig() {
       loginCustomerId: String(merged.GOOGLE_LOGIN_CUSTOMER_ID || "").replace(/-/g, ""),
     },
 
+    // Claude, for reading a spreadsheet's columns and explaining them in
+    // English. Absent = the tool falls back to rule-based column guessing,
+    // which still works; it just cannot explain itself. See src/columnAI.js.
+    //
+    // baseUrl is pinned rather than left to the SDK because ANTHROPIC_BASE_URL
+    // is often already set in the environment by other Anthropic tooling, and
+    // silently sending this key somewhere else would be bad.
+    anthropic: {
+      apiKey: merged.ANTHROPIC_API_KEY || "",
+      baseUrl: merged.TSF_ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+      model: merged.TSF_ANTHROPIC_MODEL || "claude-opus-5",
+    },
+
     // Google sign-in. Absent = running locally with no login; see src/auth.js.
     auth: {
       googleClientId: merged.TSF_GOOGLE_CLIENT_ID || "",

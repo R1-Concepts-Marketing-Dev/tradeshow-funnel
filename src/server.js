@@ -20,6 +20,7 @@ import * as auth from "./auth.js";
 import * as registry from "./registry.js";
 import * as audiences from "./audiences.js";
 import * as ingest from "./ingest.js";
+import * as columnAI from "./columnAI.js";
 import * as geo from "./geo.js";
 import * as brands from "./brands.js";
 import * as campaigns from "./campaigns.js";
@@ -211,15 +212,33 @@ const ROUTES = {
    * Files arrive base64-encoded because a spreadsheet is binary and JSON is
    * not — cheaper than adding a multipart parser for two fields.
    */
-  "POST /api/upload/inspect": (body) => {
+  "POST /api/upload/inspect": async (body) => {
     const files = body.files || [{ filename: body.filename, base64: body.base64 }];
 
-    return {
-      fields: Object.keys(ingest.COLUMN_GUESSES),
-      files: files.map((file) => {
+    const inspected = await Promise.all(
+      files.map(async (file) => {
         const name = file.filename || "upload.csv";
         try {
           const table = ingest.readTable(Buffer.from(file.base64 || "", "base64"), name);
+          const rules = ingest.guessMapping(table.headers, file.mapping);
+
+          // Ask Claude what the columns are. It usually agrees with the rules
+          // and the value is the plain-English summary; where it disagrees it
+          // is normally right, because it can read a header the lists have
+          // never seen. Either way the operator sees the result before commit.
+          //
+          // A failure here must never block an upload — the rules alone got
+          // this far, so we fall back to them and say why in the UI.
+          let ai = null;
+          let aiError = null;
+          if (columnAI.isAvailable() && !file.mapping) {
+            try {
+              ai = await columnAI.suggestMapping(table, { filename: name });
+            } catch (error) {
+              aiError = error.message;
+            }
+          }
+
           return {
             filename: name,
             ok: true,
@@ -228,7 +247,10 @@ const ROUTES = {
             sheetName: table.sheetName,
             sheets: table.sheets,
             notes: table.notes,
-            mapping: ingest.guessMapping(table.headers, file.mapping),
+            mapping: ai ? { ...rules, ...ai.mapping } : rules,
+            rulesMapping: rules,
+            ai,
+            aiError,
             sample: table.rows.slice(0, 5),
             // A guess at what this file is, from its name. The operator can
             // change it — this only saves a click on the common case.
@@ -237,8 +259,10 @@ const ROUTES = {
         } catch (error) {
           return { filename: name, ok: false, error: error.message };
         }
-      }),
-    };
+      })
+    );
+
+    return { fields: Object.keys(ingest.COLUMN_GUESSES), aiAvailable: columnAI.isAvailable(), files: inspected };
   },
 
   /**

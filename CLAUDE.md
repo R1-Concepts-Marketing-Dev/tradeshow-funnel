@@ -41,6 +41,12 @@ Column guessing is two passes — exact header match, then a keyword pass so
 "Badge Email" still maps. Anything matching opt-out / consent / unsubscribe is
 never mapped, because mapping it would be worse than mapping nothing.
 
+When `ANTHROPIC_API_KEY` is set, `src/columnAI.js` also asks Claude to read the
+columns and summarise the file in English. Only headers, fill rates, value
+patterns and masked examples are sent — never contact data. If someone asks
+whether uploading a list sends it to an API, the answer is no, and
+`test/columnAI.test.js` is the proof.
+
 ## Brands come first
 
 Every audience belongs to **one** brand: `r1` (R1 Concepts) or `dfc` (Dynamic

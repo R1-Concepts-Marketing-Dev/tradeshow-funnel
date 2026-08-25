@@ -40,6 +40,10 @@ export const COLUMN_GUESSES = {
   state: ["state", "province", "region"],
   country: ["country"],
   website: ["website", "url", "web", "domain"],
+  // Last on purpose. Plenty of files have one "Attendee Name" column instead
+  // of two, and this is split into firstName/lastName below. It is checked
+  // after the real first/last columns so it only ever gets the leftovers.
+  fullName: ["name", "full name", "fullname", "attendee name", "contact name", "registrant name"],
 };
 
 // Reading files is its own problem — organizer exports are .xlsx with junk
@@ -62,6 +66,7 @@ export const CORE_KEYWORDS = {
   state: ["state", "province"],
   country: ["country"],
   website: ["website", "domain"],
+  fullName: ["full name", "attendee name", "contact name", "registrant name"],
 };
 
 /**
@@ -117,7 +122,34 @@ export function guessMapping(headers, saved = {}) {
     }
   }
 
+  // If the file has proper first/last columns, a "Name" column is something
+  // else — a display name, a badge name. Leave it alone rather than showing a
+  // mapping that will never be used.
+  if (mapping.fullName && (mapping.firstName || mapping.lastName)) delete mapping.fullName;
+
   return mapping;
+}
+
+/**
+ * Splits "Dana Whitfield" into ["Dana", "Whitfield"], and copes with the ways
+ * real files write a name: "Whitfield, Dana" and "Whitfield, Dana R." are both
+ * last-name-first, so the comma decides. Suffixes stay with the surname.
+ *
+ * This is a guess and is treated as one — it never overwrites a real column.
+ */
+export function splitFullName(value) {
+  const text = String(value ?? "").trim().replace(/\s+/g, " ");
+  if (!text) return [""];
+
+  // "Whitfield, Dana" — comma means the surname came first.
+  if (text.includes(",")) {
+    const [surname, given] = text.split(",", 2).map((part) => part.trim());
+    if (given) return [given.split(" ")[0], surname];
+  }
+
+  const parts = text.split(" ");
+  if (parts.length === 1) return [parts[0]];
+  return [parts[0], parts.slice(1).join(" ")];
 }
 
 /** Loads saved per-organizer column mappings. Keyed by a name you choose. */
@@ -211,6 +243,15 @@ export async function ingestFile({
     for (const [field, header] of Object.entries(mapping)) {
       if (header && row[header] !== undefined) mapped[field] = row[header];
     }
+
+    // One "Attendee Name" column instead of two. Only ever fills gaps — a real
+    // first/last column always wins, because a split is a guess and a column is not.
+    if (mapped.fullName && !mapped.firstName && !mapped.lastName) {
+      const [first, ...rest] = splitFullName(mapped.fullName);
+      mapped.firstName = first;
+      mapped.lastName = rest.join(" ");
+    }
+    delete mapped.fullName;
 
     const result = normalizeRow(mapped);
     if (!result.ok) {

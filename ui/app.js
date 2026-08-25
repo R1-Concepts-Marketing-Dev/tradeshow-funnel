@@ -548,7 +548,97 @@ function renderFileTabs() {
 }
 
 /** The column mapping table, for whichever file is selected. */
+/**
+ * Our field names, said the way a person would say them. The table used to
+ * show "jobTitle", which is a programmer's word for it.
+ */
+const FIELD_LABELS = {
+  email: "Email",
+  firstName: "First name",
+  lastName: "Last name",
+  fullName: "Full name",
+  phone: "Phone",
+  company: "Company",
+  jobTitle: "Job title",
+  city: "City",
+  state: "State",
+  country: "Country",
+  website: "Website",
+};
+
+const CONFIDENCE_TONE = { high: "good", medium: "info", low: "warn" };
+
+/**
+ * What Claude made of the file, in English, above the column table.
+ *
+ * This is the part that makes the tool usable by someone who has never mapped
+ * a column in their life: they read a sentence, glance at the table underneath
+ * to confirm, and press preview.
+ */
+function renderAIRead() {
+  const box = $("#ai-read");
+  const file = state.upload.files[state.upload.activeFile];
+  if (!file || !file.ok) {
+    box.innerHTML = "";
+    return;
+  }
+
+  if (file.aiError) {
+    box.innerHTML = `<div class="notice warn"><b>Read the columns without Claude.</b>
+      The columns below were matched by name only. (${esc(file.aiError)})</div>`;
+    return;
+  }
+
+  const ai = file.ai;
+  if (!ai) {
+    box.innerHTML = state.upload.aiAvailable
+      ? ""
+      : `<div class="notice info"><b>Columns matched by name.</b>
+         Set <code>ANTHROPIC_API_KEY</code> and Claude will read the file and explain
+         it in plain English instead. Everything still works without it.</div>`;
+    return;
+  }
+
+  const changed = Object.entries(ai.mapping).filter(
+    ([field, header]) => (file.rulesMapping || {})[field] !== header
+  );
+
+  box.innerHTML = `
+    <div class="notice ${CONFIDENCE_TONE[ai.confidence] || "info"} ai-read">
+      <div class="ai-read-head">
+        <b>Claude read this file</b>
+        <span class="chip">${esc(ai.fileLooksLike)}</span>
+        <span class="chip">${esc(ai.confidence)} confidence</span>
+      </div>
+      <p>${esc(ai.summary)}</p>
+      ${
+        ai.splitFullName
+          ? `<p class="hint">One name column (<b>${esc(
+              ai.splitFullName
+            )}</b>) — it will be split into first and last.</p>`
+          : ""
+      }
+      ${
+        changed.length
+          ? `<p class="hint">Claude changed ${changed.length} column${
+              changed.length === 1 ? "" : "s"
+            } from the name-based guess: ${changed
+              .map(([f, h]) => `${esc(FIELD_LABELS[f] || f)} &larr; <b>${esc(h)}</b>`)
+              .join(", ")}.</p>`
+          : ""
+      }
+      ${
+        ai.warnings.length
+          ? `<ul class="ai-warnings">${ai.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`
+          : ""
+      }
+      <p class="hint ai-privacy">Column names and value shapes were sent, never the contacts themselves.</p>
+    </div>`;
+}
+
 function renderMapping() {
+  renderAIRead();
+
   const body = $("#mapping-table tbody");
   const file = state.upload.files[state.upload.activeFile];
 
@@ -557,15 +647,27 @@ function renderMapping() {
     return;
   }
 
-  body.innerHTML = state.upload.fields
+  // Only offer the single-name column when the file has no real first/last, so
+  // nobody has to wonder which of the three to use.
+  const fields = state.upload.fields.filter(
+    (field) => field !== "fullName" || (!file.mapping.firstName && !file.mapping.lastName)
+  );
+
+  body.innerHTML = fields
     .map((field) => {
       const selected = file.mapping[field] || "";
       const sample = selected ? file.sample.map((row) => row[selected]).find(Boolean) : "";
       const required = field === "email" || field === "phone";
+      const note =
+        field === "fullName"
+          ? ' <span class="hint">(split into first and last)</span>'
+          : required
+            ? ' <span class="hint">(one of these two is required)</span>'
+            : "";
       return `<tr>
-        <td><b>${esc(field)}</b>${required ? ' <span class="hint">(one of these two is required)</span>' : ""}</td>
+        <td><b>${esc(FIELD_LABELS[field] || field)}</b>${note}</td>
         <td><select data-field="${esc(field)}" class="map-select">
-          <option value="">— not mapped —</option>
+          <option value="">&mdash; not mapped &mdash;</option>
           ${file.headers
             .map((h) => `<option value="${esc(h)}" ${h === selected ? "selected" : ""}>${esc(h)}</option>`)
             .join("")}
@@ -774,35 +876,115 @@ function renderShows() {
  * What a show has actually received, from the import log. This is the
  * "organize" half — at a glance, which lists are in and which are missing.
  */
+/**
+ * How many people each source brought in for one show.
+ *
+ * Two things put contacts against a show and both count: a file someone
+ * uploaded (`import.committed`) and a tablet batch claimed out of HubSpot
+ * (`tablet.claimed`). Counting only the first is why a show whose booth
+ * sign-ups had been claimed still read "not loaded" for the tablet.
+ *
+ * The two log entries have different shapes. An upload knows how many contacts
+ * were new versus already known; a tablet claim upserts and does not, so its
+ * `net` is null and the card says "loaded" rather than inventing a number.
+ */
 function intakeFor(showId) {
-  const imports = state.history.filter(
-    (e) => e.action === "import.committed" && e.showId === showId
+  const runs = state.history.filter(
+    (e) =>
+      (e.action === "import.committed" || e.action === "tablet.claimed") && e.showId === showId
   );
+
   const bySource = {};
-  for (const entry of imports) {
-    const s = (bySource[entry.source] ||= { files: 0, created: 0, updated: 0, rejected: 0 });
+  for (const entry of runs) {
+    const s = (bySource[entry.source] ||= { files: 0, people: 0, net: 0, netKnown: true, rejected: 0 });
     s.files += 1;
-    s.created += entry.created || 0;
-    s.updated += entry.updated || 0;
     s.rejected += entry.rejected || 0;
+
+    if (entry.action === "import.committed") {
+      s.people += (entry.created || 0) + (entry.updated || 0);
+      s.net += entry.created || 0;
+    } else {
+      s.people += entry.contacts || 0;
+      s.netKnown = false;
+    }
   }
   return bySource;
+}
+
+/**
+ * Which side of the show each source falls on.
+ *
+ * Booth sign-ups and badge scans happen AT the show, so they are neither the
+ * pre-show roster nor the post-show one — lumping them into either would
+ * overstate it. They get their own column.
+ */
+const SHOW_PHASE = {
+  roster_pre: "pre",
+  booth_tablet: "during",
+  badge_scan: "during",
+  roster_post: "post",
+  referral: "post",
+};
+
+const PHASE_LABELS = { pre: "Before the show", during: "At the show", post: "After the show" };
+
+/** Rolls the per-source intake up into before / at / after the show. */
+function phaseTotals(intake) {
+  const totals = {
+    pre: { people: 0, net: 0, files: 0, netKnown: true },
+    during: { people: 0, net: 0, files: 0, netKnown: true },
+    post: { people: 0, net: 0, files: 0, netKnown: true },
+  };
+  for (const [source, got] of Object.entries(intake)) {
+    const phase = totals[SHOW_PHASE[source] || "post"];
+    phase.people += got.people;
+    phase.net += got.net;
+    phase.files += got.files;
+    if (!got.netKnown) phase.netKnown = false;
+  }
+  return totals;
 }
 
 function showCard(show) {
   const brandChips = (show.brands || []).map(brandChip).join(" ");
   const audienceCount = state.audiences.filter((a) => a.shows.includes(show.id)).length;
   const intake = intakeFor(show.id);
+
+  // The headline question about any show is how many people came in before it
+  // versus after, so it goes above the per-source detail rather than in it.
+  const phases = phaseTotals(intake);
+  const anyIntake = Object.values(phases).some((p) => p.files);
+  const phaseBlock = `<div class="phases${anyIntake ? "" : " empty"}">
+    ${["pre", "during", "post"]
+      .map((key) => {
+        const p = phases[key];
+        return `<div class="phase ${p.files ? "got" : ""}">
+          <div class="k">${esc(PHASE_LABELS[key])}</div>
+          <div class="v">${p.files ? fmt(p.people) : "—"}</div>
+          <div class="s">${
+            !p.files
+              ? "nothing loaded yet"
+              : p.netKnown
+                ? `${fmt(p.net)} new to HubSpot`
+                : "claimed from HubSpot"
+          }</div>
+        </div>`;
+      })
+      .join("")}
+  </div>`;
+
   const SOURCE_ORDER = ["roster_pre", "booth_tablet", "badge_scan", "roster_post"];
-  const intakeBlock = `<div class="intake">
+  const intakeBlock = phaseBlock + `<div class="intake">
     ${SOURCE_ORDER.map((src) => {
       const got = intake[src];
       return `<div class="intake-item ${got ? "got" : ""}">
         <div class="k">${esc(SOURCE_LABELS[src] || src)}</div>
-        <div class="v">${got ? fmt(got.created + got.updated) : "—"}</div>
+        <div class="v">${got ? fmt(got.people) : "—"}</div>
         <div class="s">${
           got
-            ? `${got.files} file${got.files === 1 ? "" : "s"}${got.rejected ? ` · ${fmt(got.rejected)} rejected` : ""}`
+            ? `${got.files} ${got.netKnown ? "file" : "batch"}${got.files === 1 ? "" : "s"}${
+                got.rejected ? ` · ${fmt(got.rejected)} rejected` : ""
+              }`
             : "not loaded"
         }</div>
       </div>`;
@@ -1301,6 +1483,7 @@ async function acceptFiles(fileList) {
 
     const inspected = await api("/api/upload/inspect", { files: payload });
     state.upload.fields = inspected.fields;
+    state.upload.aiAvailable = inspected.aiAvailable;
 
     inspected.files.forEach((info, index) => {
       state.upload.files.push({

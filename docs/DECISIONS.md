@@ -284,6 +284,58 @@ Address Confirmed At".
 
 ---
 
+## Claude reads the file, but never reads the contacts
+
+The two-pass guesser above only knows headers someone has already taught it.
+The whole point of this tool is that anyone can use it, and "anyone" includes
+the person who has never seen a column mapping and will not notice that email
+came through unmapped.
+
+So when `ANTHROPIC_API_KEY` is set, `src/columnAI.js` asks Claude what the
+columns are, and — more usefully — asks it to say so in a sentence:
+
+> Found 2,847 people. I'm using 'Badge Email' for email and 'Cell' for phone,
+> and splitting 'Attendee Name' into first and last names.
+
+That sentence is the feature. The mapping table underneath is now something you
+glance at to confirm, rather than something you have to fill in.
+
+### What is actually sent
+
+Not the file. For each column, Claude gets:
+
+- the header
+- how full it is (`75% filled`)
+- how varied it is (`100% distinct`)
+- what the values look like as patterns (`100% email`, `94% phoneish`)
+- three **masked** examples — `d***@b***.com`, `########84`, `D*** W****`
+
+Nothing identifying survives the masking, and it turns out Claude maps just as
+well from the shape as from the values. `test/columnAI.test.js` asserts that
+real names, domains and phone digits cannot appear in the payload; those are
+the important tests in this repo, and a failing one is never fixed by
+loosening the assertion.
+
+### It is optional, and failure is not fatal
+
+No key means the rule-based guesser runs alone, exactly as before. An API error
+means the same, with a note in the UI saying so. An upload must never be
+blocked by a network call — the rules got this far without one.
+
+Claude's answer is also checked rather than trusted: any header it names that
+is not actually in the file is discarded, and the operator sees the result
+before anything reaches HubSpot.
+
+### One name column
+
+The most common thing the rules could not do is split `Attendee Name` into a
+first and a last. That is now a real field (`fullName`) rather than an
+AI-only trick, so it works with or without a key. It only ever fills gaps — a
+file with proper First/Last columns keeps them, because a split is a guess and
+a column is not.
+
+---
+
 ## Several files are one batch
 
 A show arrives as three or four files: pre-show roster, badge retrieval export,

@@ -236,6 +236,7 @@ opens with a comment saying what it does and when you would edit it.
 | `src/readfile.js` | Reads .xlsx and .csv, finds the header row, picks the sheet. |
 | `src/campaigns.js` | The campaign recipes. Add a new one here — it is all data. |
 | `src/ingest.js` | CSV in, contacts out. |
+| `src/columnAI.js` | Asks Claude what the columns are, without sending the contacts. |
 | `src/normalize.js` | Cleaning emails, phones, names. Pure functions. |
 | `src/merge.js` | Duplicate matching and which value wins. |
 | `src/setup.js` | The HubSpot properties this tool needs. |

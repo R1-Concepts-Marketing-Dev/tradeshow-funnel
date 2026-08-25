@@ -299,6 +299,29 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
 .intake-item .v { font-size: 15px; font-weight: 660; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .intake-item .s { font-size: 11px; color: var(--muted); }
 
+/* Before / at / after the show — the headline above the per-source detail.
+   Deliberately heavier than .intake-item: this is the number people read. */
+.phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.phase {
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  padding: 12px 14px; background: var(--surface-2);
+}
+.phase.got { border-color: var(--accent); background: var(--accent-wash); }
+.phase .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted-2);
+}
+.phase.got .k { color: var(--accent); }
+.phase .v { font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 4px; }
+.phase .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+/* The per-source strip is detail under the headline, so it tightens up. */
+.phases + .intake { margin-top: 8px; }
+
+@media (max-width: 620px) {
+  .phases { grid-template-columns: 1fr; }
+}
+
 /* ---------- new show, created inline from the upload form ---------- */
 .new-show {
   margin-top: 14px; padding: 14px;
@@ -458,3 +481,24 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
   .file-row .btn { justify-self: start; }
   .file-tab { max-width: 100%; }
 }
+
+/* --- What Claude made of the uploaded file, above the column table --------- */
+
+.ai-read { margin: 0 0 12px; }
+.ai-read p { margin: 8px 0 0; }
+.ai-read p:first-of-type { font-size: 13.5px; line-height: 1.55; }
+
+.ai-read-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The notice tints its own text; the chips need to stay readable on that tint. */
+.ai-read .chip { background: var(--surface); color: var(--muted); border-color: var(--line-2); }
+
+.ai-warnings { margin: 8px 0 0; padding-left: 18px; }
+.ai-warnings li { font-family: inherit; font-size: 12.5px; margin-bottom: 3px; }
+
+.ai-privacy { opacity: 0.75; font-size: 11.5px; }
