@@ -29,6 +29,17 @@ export const PROPERTIES = [
       "upserts on email, which would blank fields we did not send.",
   },
   {
+    name: "ts_brand",
+    label: "Trade Show — Brand",
+    type: "enumeration",
+    fieldType: "select",
+    description:
+      "Which business this contact belongs to. R1 and DFC keep separate " +
+      "audiences; every list filter starts with this. Options must match the " +
+      "ids in data/brands.json.",
+    options: ["r1", "dfc"],
+  },
+  {
     name: "ts_sources",
     label: "Trade Show — Sources",
     type: "enumeration",

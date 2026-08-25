@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade Show Funnel</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎫</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brandmark">
+      <div class="glyph" id="brand-glyph">TS</div>
+      <div>
+        <div class="title">Trade Show Funnel</div>
+        <div class="sub" id="brand-sub">All brands</div>
+      </div>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <div class="brand-switch" id="brand-switch" role="group" aria-label="Brand"></div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <div class="wrap tabs-inner">
+    <button class="tab is-active" data-view="audiences">Audiences</button>
+    <button class="tab" data-view="upload">Upload</button>
+    <button class="tab" data-view="shows">Shows</button>
+    <button class="tab" data-view="history">History</button>
+    <div class="topbar-spacer"></div>
+    <button class="btn btn-ghost" id="refresh-all">Refresh sizes</button>
+  </div>
+</nav>
+
+<main class="wrap" id="main">
+
+  <!-- ================= AUDIENCES ================= -->
+  <section class="view" data-view="audiences">
+    <div class="stats" id="stats"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Audiences</h2>
+        <span class="hint" id="audience-scope"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="grid" id="audience-table">
+          <thead>
+            <tr>
+              <th>Audience</th>
+              <th>Brand</th>
+              <th>Type</th>
+              <th>Shows</th>
+              <th class="right">Reach</th>
+              <th>Trend</th>
+              <th>Destinations</th>
+              <th>Checked</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="audience-empty" hidden>
+        No audiences for this brand yet. Create one from the <b>Shows</b> tab.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= UPLOAD ================= -->
+  <section class="view" data-view="upload" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Upload a list</h2>
+        <span class="hint">Nothing is written until you press Commit.</span>
+      </div>
+
+      <ol class="steps">
+        <li class="step is-open" data-step="1">
+          <div class="step-head"><span class="step-n">1</span> Choose the file</div>
+          <div class="step-body">
+            <label class="drop" id="drop">
+              <input type="file" id="file-input" accept=".csv,.txt,text/csv" hidden>
+              <div class="drop-inner">
+                <div class="drop-title">Drop a CSV here</div>
+                <div class="drop-sub">or click to choose · roster or tablet export</div>
+              </div>
+            </label>
+            <div class="file-chip" id="file-chip" hidden></div>
+          </div>
+        </li>
+
+        <li class="step" data-step="2">
+          <div class="step-head"><span class="step-n">2</span> Where does it belong?</div>
+          <div class="step-body">
+            <div class="field-row">
+              <div class="field">
+                <label for="up-brand">Brand <span class="req">required</span></label>
+                <select id="up-brand"><option value="">Choose…</option></select>
+                <p class="field-note">R1 and DFC keep separate audiences. There is no default.</p>
+              </div>
+              <div class="field">
+                <label for="up-show">Show</label>
+                <select id="up-show"><option value="">Choose…</option></select>
+              </div>
+              <div class="field">
+                <label for="up-source">Source</label>
+                <select id="up-source"></select>
+                <p class="field-note" id="source-note"></p>
+              </div>
+            </div>
+          </div>
+        </li>
+
+        <li class="step" data-step="3">
+          <div class="step-head"><span class="step-n">3</span> Check the columns</div>
+          <div class="step-body">
+            <div class="table-scroll">
+              <table class="grid compact" id="mapping-table">
+                <thead><tr><th>Field</th><th>Column in your file</th><th>Sample value</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </li>
+
+        <li class="step" data-step="4">
+          <div class="step-head"><span class="step-n">4</span> Preview, then commit</div>
+          <div class="step-body">
+            <div class="actions">
+              <button class="btn btn-primary" id="btn-preview" disabled>Run preview</button>
+              <button class="btn btn-commit" id="btn-commit" disabled>Commit to HubSpot</button>
+            </div>
+            <div id="preview-out"></div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ================= SHOWS ================= -->
+  <section class="view" data-view="shows" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Add a show</h2>
+        <span class="hint">Research the venue to unlock geo targeting.</span>
+      </div>
+      <div class="panel-body">
+        <div class="field-row">
+          <div class="field"><label for="show-name">Name</label><input id="show-name" placeholder="SEMA 2026"></div>
+          <div class="field"><label for="show-start">Starts</label><input id="show-start" type="date"></div>
+          <div class="field"><label for="show-end">Ends</label><input id="show-end" type="date"></div>
+          <div class="field"><label for="show-city">City</label><input id="show-city" placeholder="Las Vegas, NV"></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="btn-add-show">Add show</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="show-cards"></div>
+  </section>
+
+  <!-- ================= HISTORY ================= -->
+  <section class="view" data-view="history" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Activity</h2>
+        <span class="hint">Append-only. Nothing here is ever edited or deleted.</span>
+      </div>
+      <ul class="feed" id="feed"></ul>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<div class="drawer-scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Audience detail"></aside>
+
+<script src="/app.js"></script>
+</body>
+</html>

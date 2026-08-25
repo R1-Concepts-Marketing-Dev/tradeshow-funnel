@@ -15,6 +15,7 @@ import * as registry from "../src/registry.js";
 import * as audiences from "../src/audiences.js";
 import * as ingest from "../src/ingest.js";
 import * as geo from "../src/geo.js";
+import * as brands from "../src/brands.js";
 import { writeReport } from "../src/report.js";
 import { setupProperties } from "../src/setup.js";
 
@@ -41,6 +42,44 @@ const COMMANDS = {
     },
   },
 
+  "ui": {
+    summary: "Open the web interface — upload lists and browse audiences.",
+    // parseArgs has no "--no-x" negation, so the flag is named for what it does.
+    options: { port: { type: "string", default: "4477" }, "no-open": { type: "boolean", default: false } },
+    async run({ values }) {
+      const { startServer } = await import("../src/server.js");
+      const { url } = await startServer({ port: Number(values.port) });
+
+      console.log(`\n  Trade Show Funnel is running at ${url}`);
+      console.log("  Bound to localhost only. Press Ctrl+C to stop.\n");
+
+      if (!values["no-open"]) {
+        // Best effort — if the browser does not open, the URL is printed above.
+        const opener = process.platform === "win32" ? "start" : process.platform === "darwin" ? "open" : "xdg-open";
+        const { spawn } = await import("node:child_process");
+        try {
+          spawn(opener, [url], { shell: true, stdio: "ignore", detached: true }).unref();
+        } catch {}
+      }
+
+      // Hold the process open until the user stops it.
+      await new Promise(() => {});
+    },
+  },
+
+  "brands": {
+    summary: "List the brands and their HubSpot business units.",
+    async run() {
+      for (const brand of brands.loadBrands()) {
+        console.log(
+          `  ${brand.id.padEnd(6)} ${brand.name.padEnd(26)} ` +
+            `BU ${brand.hubspotBusinessUnitId || "(not set)"}`
+        );
+      }
+      console.log("\nEdit data/brands.json to add a brand or fill in a business unit id.");
+    },
+  },
+
   "show add": {
     summary: "Register a trade show.",
     options: {
@@ -49,16 +88,22 @@ const COMMANDS = {
       start: { type: "string" },
       end: { type: "string" },
       city: { type: "string", default: "" },
+      brands: { type: "string", default: "" },
     },
     async run({ values }) {
       require_(values, ["name", "start", "end"]);
       const id = values.id || registry.slugify(values.name);
+      // Which brands exhibit here. Both by default — most shows carry both booths.
+      const showBrands = values.brands
+        ? splitCsv(values.brands).map((b) => brands.requireBrand(b).id)
+        : brands.loadBrands().map((b) => b.id);
       const show = registry.addShow({
         id,
         name: values.name,
         startDate: values.start,
         endDate: values.end,
         city: values.city,
+        brands: showBrands,
       });
       console.log(`Added show "${show.name}" as \`${show.id}\`.`);
       writeReport();
@@ -166,6 +211,7 @@ const COMMANDS = {
     summary: "Read a CSV, merge it, and preview. Add --commit to actually write.",
     options: {
       file: { type: "string" },
+      brand: { type: "string" },
       show: { type: "string" },
       source: { type: "string" },
       commit: { type: "boolean", default: false },
@@ -174,7 +220,7 @@ const COMMANDS = {
       "consent-text": { type: "string", default: "" },
     },
     async run({ values }) {
-      require_(values, ["file", "show", "source"]);
+      require_(values, ["file", "brand", "show", "source"]);
       const mappings = ingest.loadMappings();
       const saved = values.profile ? mappings[values.profile] : undefined;
       if (values.profile && !saved) {
@@ -183,6 +229,7 @@ const COMMANDS = {
 
       const result = await ingest.ingestFile({
         file: values.file,
+        brand: values.brand,
         showId: values.show,
         source: values.source,
         mapping: saved,
@@ -196,7 +243,8 @@ const COMMANDS = {
       }
 
       const s = result.summary;
-      console.log("\nDry-run preview:" .replace("Dry-run", s.committed ? "Committed" : "Dry-run"));
+      console.log("\n" + (s.committed ? "Committed" : "Dry-run preview") + ":");
+      console.log(`  brand               ${brands.brandLabel(s.brand)}`);
       console.log(`  rows read           ${num(s.rowsRead)}`);
       console.log(`  contacts to write   ${num(s.contacts)}`);
       console.log(`    · created         ${num(s.created)}`);
@@ -241,6 +289,7 @@ const COMMANDS = {
       "venue and dates), or both.",
     options: {
       type: { type: "string", default: "list" }, // list | geo | both
+      brand: { type: "string" },
       name: { type: "string" },
       purpose: { type: "string", default: "" },
       show: { type: "string" },                  // required for geo
@@ -255,6 +304,8 @@ const COMMANDS = {
       if (!["list", "geo", "both"].includes(type)) {
         throw new Error(`--type must be list, geo, or both (got "${type}").`);
       }
+      // Fail before touching HubSpot if the brand is missing or wrong.
+      const brand = brands.requireBrand(values.brand);
 
       // With --type both, one half already existing should not stop the other.
       // Only a genuine failure of the half you asked for is an error.
@@ -268,6 +319,7 @@ const COMMANDS = {
 
         try {
           const result = await audiences.createGeoAudience({
+          brand: brand.id,
           show,
           name: type === "both" ? `${show.name} — Geo` : values.name,
           purpose: values.purpose,
@@ -302,6 +354,7 @@ const COMMANDS = {
         if (!name) throw new Error("Missing required option: --name");
 
         const result = await audiences.createAudience({
+          brand: brand.id,
           name,
           purpose: values.purpose,
           shows,
@@ -328,19 +381,22 @@ const COMMANDS = {
   },
 
   "audience list": {
-    summary: "Show every audience and its current size.",
-    async run() {
-      const all = registry.listAudiences();
+    summary: "Show every audience and its current size. --brand to scope.",
+    options: { brand: { type: "string" } },
+    async run({ values }) {
+      const brand = values.brand ? brands.requireBrand(values.brand).id : null;
+      const all = registry.listAudiences({ brand });
       if (!all.length) return console.log("No audiences yet. Create one with `tsf audience create`.");
       for (const audience of all) {
         const latest = audience.sizeHistory.at(-1);
         const mark = audience.status === "active" ? " " : "×";
         const type = (audience.type || "list").padEnd(4);
+        const brandTag = brands.brandLabel(audience.brand).padEnd(4);
         const size = audience.type === "geo"
           ? (audience.definition.geo?.window?.totalDays ?? "?") + "d"
           : num(latest?.size);
         console.log(
-          `${mark} ${type} ${audience.id.padEnd(32)} ${String(size).padStart(9)}  ` +
+          `${mark} ${brandTag} ${type} ${audience.id.padEnd(30)} ${String(size).padStart(9)}  ` +
             `${audience.destinations.map((d) => d.platform).join(",") || "—"}`
         );
       }
@@ -358,6 +414,7 @@ const COMMANDS = {
       console.log(`${audience.name}  [${audience.status}]`);
       console.log(`  purpose      ${audience.purpose || "(not recorded)"}`);
       console.log(`  created      ${audience.createdAt.slice(0, 10)} by ${audience.createdBy}`);
+      console.log(`  brand        ${brands.brandLabel(audience.brand)}`);
       console.log(`  type         ${audience.type || "list"}`);
       console.log(`  hubspot list ${audience.hubspotListId ?? "(none)"}`);
       console.log(`  shows        ${audience.shows.join(", ") || "—"}`);
@@ -396,10 +453,16 @@ const COMMANDS = {
 
   "audience refresh": {
     summary: "Re-read sizes from HubSpot and log them.",
-    options: { id: { type: "string" }, all: { type: "boolean", default: false }, note: { type: "string", default: "" } },
+    options: {
+      id: { type: "string" },
+      all: { type: "boolean", default: false },
+      brand: { type: "string" },
+      note: { type: "string", default: "" },
+    },
     async run({ values }) {
       if (values.all) {
-        const results = await audiences.refreshAll(values.note || "bulk refresh");
+        const scope = values.brand ? brands.requireBrand(values.brand).id : null;
+        const results = await audiences.refreshAll(values.note || "bulk refresh", { brand: scope });
         for (const result of results) {
           if (result.error) console.log(`  ! ${result.id}: ${result.error}`);
           else console.log(`  ${result.id.padEnd(34)} ${num(result.sizeHistory.at(-1)?.size)}`);
@@ -468,6 +531,7 @@ const COMMANDS = {
     options: {
       action: { type: "string" },
       id: { type: "string" },
+      brand: { type: "string" },
       since: { type: "string" },
       limit: { type: "string", default: "40" },
     },
@@ -475,6 +539,7 @@ const COMMANDS = {
       const entries = registry.readHistory({
         action: values.action,
         audienceId: values.id,
+        brand: values.brand ? brands.requireBrand(values.brand).id : undefined,
         since: values.since,
         limit: Number(values.limit),
       });

@@ -19,6 +19,7 @@ import { normalizeRow } from "./normalize.js";
 import { groupContacts, mergeGroup } from "./merge.js";
 import { PATHS } from "./config.js";
 import { ACTIONS, record, loadShows } from "./registry.js";
+import { requireBrand } from "./brands.js";
 
 /** Where a contact came from. Recorded on every contact, always. */
 export const SOURCES = ["booth_tablet", "badge_scan", "roster_pre", "roster_post", "referral"];
@@ -41,10 +42,9 @@ export const COLUMN_GUESSES = {
   website: ["website", "url", "web", "domain"],
 };
 
-/** Reads a CSV into { headers, rows }. Handles a UTF-8 BOM and quoted fields. */
-export function readCsv(file) {
-  const text = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
-  const rows = parse(text, {
+/** Parses CSV text into { headers, rows }. Handles a UTF-8 BOM and quoted fields. */
+export function parseCsv(text) {
+  const rows = parse(String(text).replace(/^﻿/, ""), {
     columns: true,
     skip_empty_lines: true,
     relax_column_count: true,
@@ -52,6 +52,11 @@ export function readCsv(file) {
   });
   const headers = rows.length ? Object.keys(rows[0]) : [];
   return { headers, rows };
+}
+
+/** Reads a CSV file off disk. The UI passes text instead — see ingestFile. */
+export function readCsv(file) {
+  return parseCsv(fs.readFileSync(file, "utf8"));
 }
 
 /**
@@ -96,9 +101,12 @@ export function saveMapping(profileName, mapping) {
  * blank the rest. A key we control avoids that and makes a re-run of the same
  * file a no-op instead of a duplicate storm.
  */
-export function dedupeKey(contact) {
+export function dedupeKey(contact, brandId) {
   const basis = contact.email || contact.phone;
-  return `tsf:${basis}`;
+  // Brand-scoped on purpose. The same person can legitimately be an R1 contact
+  // and a DFC contact, and collapsing them would merge two brands' consent and
+  // engagement history into one record.
+  return `tsf:${brandId}:${basis}`;
 }
 
 /**
@@ -114,12 +122,19 @@ export function dedupeKey(contact) {
  */
 export async function ingestFile({
   file,
+  text,
+  filename,
+  brand: brandInput,
   showId,
   source,
   mapping: providedMapping,
   commit = false,
   consentTextId = "",
 }) {
+  // Brand is required, and there is no default. An unbranded import is the one
+  // way R1 contacts could end up in a DFC audience.
+  const brand = requireBrand(brandInput);
+
   if (!SOURCES.includes(source)) {
     throw new Error(`Unknown source "${source}". Use one of: ${SOURCES.join(", ")}`);
   }
@@ -128,7 +143,11 @@ export async function ingestFile({
     throw new Error(`Unknown show "${showId}". Add it first: tsf show add`);
   }
 
-  const { headers, rows } = readCsv(file);
+  // The CLI passes a path; the web UI passes the file's text, because the
+  // browser has already read it and shipping bytes through a multipart parser
+  // would add a dependency for no benefit.
+  const displayName = filename || (file ? path.basename(file) : "upload.csv");
+  const { headers, rows } = text !== undefined ? parseCsv(text) : readCsv(file);
   const mapping = providedMapping || guessMapping(headers);
 
   if (!mapping.email && !mapping.phone) {
@@ -142,7 +161,7 @@ export async function ingestFile({
   // ---- normalize -----------------------------------------------------------
   const normalized = [];
   const rejects = [];
-  const batchId = `${showId}-${source}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const batchId = `${brand.id}-${showId}-${source}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const nowIso = new Date().toISOString();
 
   rows.forEach((row, index) => {
@@ -164,6 +183,7 @@ export async function ingestFile({
       ts_events_attended: showId,
       ts_first_event: showId,
       ts_first_source: source,
+      ts_brand: brand.id,
       ts_import_batch: batchId,
       ...(source === "booth_tablet" || source === "badge_scan"
         ? { ts_consent_status: "express_optin", ts_consent_at: nowIso, ts_consent_text_id: consentTextId }
@@ -175,7 +195,7 @@ export async function ingestFile({
   const { groups, review } = groupContacts(normalized);
 
   // What does HubSpot already have for these people?
-  const keys = groups.map((group) => dedupeKey(group.contacts[0]));
+  const keys = groups.map((group) => dedupeKey(group.contacts[0], brand.id));
   let existingByKey = new Map();
 
   if (commit || keys.length) {
@@ -184,7 +204,7 @@ export async function ingestFile({
         keys,
         "ts_dedupe_key",
         ["email", "phone", "firstname", "lastname", "company",
-         "ts_sources", "ts_events_attended", "ts_interest",
+         "ts_brand", "ts_sources", "ts_events_attended", "ts_interest",
          "ts_consent_at", "ts_consent_status", "ts_first_event"]
       );
       existingByKey = new Map(
@@ -197,7 +217,7 @@ export async function ingestFile({
   }
 
   const toWrite = groups.map((group) => {
-    const key = dedupeKey(group.contacts[0]);
+    const key = dedupeKey(group.contacts[0], brand.id);
     const merged = mergeGroup(group.contacts, existingByKey.get(key));
     return {
       id: key,
@@ -209,7 +229,8 @@ export async function ingestFile({
   });
 
   const summary = {
-    file: path.basename(file),
+    file: displayName,
+    brand: brand.id,
     showId,
     source,
     batchId,
@@ -240,6 +261,7 @@ export async function ingestFile({
 function toHubspotProperties(merged, key) {
   const properties = {
     ts_dedupe_key: key,
+    ts_brand: merged.ts_brand || undefined,
     email: merged.email || undefined,
     phone: merged.phone || undefined,
     firstname: merged.firstName || undefined,

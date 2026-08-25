@@ -13,16 +13,45 @@ say what it was, how big it got, or where it was used. This keeps that.
 ```bash
 npm install
 cp .env.example .env    # then fill it in
-node bin/tsf.js
+node bin/tsf.js ui
 ```
 
-Everything runs through one command. `tsf` with no arguments prints the list.
+That opens the web interface at http://localhost:4477 — upload lists, browse
+audiences, add shows. Everything it does is also available on the command line;
+`tsf` with no arguments prints the list.
 
 ```bash
 npm run tsf -- audience list
 ```
 
 Or add `bin/tsf.js` to your PATH and just type `tsf`.
+
+---
+
+## Two brands, kept apart
+
+R1 Concepts and Dynamic Friction share a HubSpot portal but **not** their
+audiences. Brand is required on every import and every audience — there is no
+default and no "all brands" option when writing, only when looking.
+
+Three things enforce it:
+
+- Contacts carry `ts_brand`, and every list audience filters on it first.
+- The dedupe key is brand-scoped (`tsf:dfc:someone@shop.com`), so the same
+  person can be an R1 contact *and* a DFC contact without the two records
+  merging into one.
+- Audience ids are brand-prefixed (`dfc-sema-2026-contacts`), because both
+  brands attend the same shows and would otherwise collide.
+
+In the UI, the brand switch in the top right filters everything and recolours
+the accent, so it is obvious at a glance which brand you are looking at. Brands
+live in `data/brands.json`.
+
+```bash
+tsf brands
+tsf audience list --brand dfc
+tsf import --file roster.csv --brand r1 --show sema-2026 --source roster_pre
+```
 
 ---
 
@@ -45,13 +74,13 @@ targeting spec — radius rings, run window, and the presence setting that peopl
 get wrong.
 
 ```bash
-tsf import --file roster.csv --show sema-2026 --source roster_pre
+tsf import --file roster.csv --brand dfc --show sema-2026 --source roster_pre
 ```
 
 Previews. Nothing is written. Check the numbers, then re-run with `--commit`.
 
 ```bash
-tsf audience create --type both --show sema-2026 --commit
+tsf audience create --type both --brand dfc --show sema-2026 --commit
 tsf report
 ```
 
@@ -113,6 +142,9 @@ opens with a comment saying what it does and when you would edit it.
 | `src/merge.js` | Duplicate matching and which value wins. |
 | `src/setup.js` | The HubSpot properties this tool needs. |
 | `src/report.js` | Generates `AUDIENCES.md`. |
+| `src/brands.js` | R1 and DFC, and the rules that keep them apart. |
+| `src/server.js` | The local web UI's HTTP server and JSON API. |
+| `ui/` | The web interface — plain HTML, CSS and JS. No build step. |
 
 ```bash
 npm test
@@ -130,8 +162,8 @@ do not recognise, either add it to `COLUMN_GUESSES` in `src/ingest.js`, or map
 it once and save the profile:
 
 ```bash
-tsf import --file weird.csv --show sema-2026 --source roster_pre --save-profile "informa"
-tsf import --file next-year.csv --show sema-2027 --source roster_pre --profile "informa"
+tsf import --file weird.csv --brand dfc --show sema-2026 --source roster_pre --save-profile "informa"
+tsf import --file next-year.csv --brand dfc --show sema-2027 --source roster_pre --profile "informa"
 ```
 
 ---
@@ -143,6 +175,11 @@ tsf import --file next-year.csv --show sema-2027 --source roster_pre --profile "
   The venue coordinates are real.
 - The HubSpot properties have **not** been created yet — `tsf setup --commit` is
   yours to run against the live portal.
+- **R1's HubSpot business unit id is unknown** and is `null` in
+  `data/brands.json`. Dynamic Friction is 311464 and Drilled Rotors is 311463;
+  R1 is the root unit and reading its id needs a scope this app does not have.
+  Nothing breaks without it — the tool just cannot stamp HubSpot's own "Brands"
+  field for R1.
 - No list audience has been created yet, for the same reason.
 - TikTok has no connector. HubSpot syncs Google, Meta and LinkedIn natively;
   TikTok is the only platform that would need custom code, and it is not built.

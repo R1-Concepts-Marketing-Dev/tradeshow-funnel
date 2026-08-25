@@ -24,6 +24,18 @@ rather than a guess.
 `AUDIENCES.md` can be stale if someone changed data without running
 `tsf report`. If a question turns on exact numbers, read the JSON.
 
+## Brands come first
+
+Every audience belongs to **one** brand: `r1` (R1 Concepts) or `dfc` (Dynamic
+Friction Company). They share a HubSpot portal but not their audiences.
+
+When someone asks about "our audiences", ask which brand — or answer for both,
+clearly separated. **Never sum across brands**, and never present a combined
+figure as if it were one audience. Brand definitions are in `data/brands.json`.
+
+History entries carry a `brand` field. Entries without one (a show being added,
+a venue researched) are portfolio-level and apply to both.
+
 ## The two kinds of audience
 
 Check the `type` field before answering — they are not comparable.
@@ -41,8 +53,8 @@ than one show.
 ## Common questions and how to answer them
 
 **"What audiences do we have?"**
-Read `AUDIENCES.md`, summary table. Give type, current size or run window, and
-where each is being used.
+Read `AUDIENCES.md`, summary table. Group by brand. Give type, current size or
+run window, and where each is being used.
 
 **"How big is the SEMA audience?"**
 Read `data/audiences/<id>.json`, take the last entry in `sizeHistory`. Say when

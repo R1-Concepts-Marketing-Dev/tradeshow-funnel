@@ -14,6 +14,7 @@
 
 import * as hubspot from "./hubspot.js";
 import { buildGeoSpec } from "./geo.js";
+import { requireBrand } from "./brands.js";
 import {
   ACTIONS,
   loadAudience,
@@ -51,8 +52,22 @@ export const ASSUMED_MATCH_RATE = { emailOnly: 0.5, withPhone: 0.68 };
  * you want a rule this cannot express, write the filterBranch by hand and pass
  * it in as `definition.filterBranch` instead of extending this.
  */
-export function buildFilterBranch({ shows = [], sources = [] }) {
+export function buildFilterBranch({ shows = [], sources = [], brand = null }) {
   const filters = [];
+
+  // Brand first — this is the filter that keeps R1 and DFC audiences apart.
+  if (brand) {
+    filters.push({
+      filterType: "PROPERTY",
+      property: "ts_brand",
+      operation: {
+        operationType: "ENUMERATION",
+        operator: "IS_ANY_OF",
+        values: [brand],
+        includeObjectsWithNoValueSet: false,
+      },
+    });
+  }
 
   if (shows.length) {
     filters.push({
@@ -99,13 +114,22 @@ export function buildFilterBranch({ shows = [], sources = [] }) {
  * @param {boolean} options.dryRun     if true, nothing is created
  */
 export async function createAudience({
+  brand: brandInput,
   name,
   purpose = "",
   shows = [],
   sources = [],
   dryRun = false,
 }) {
-  const id = slugify(name);
+  const brand = requireBrand(brandInput);
+
+  // The id is brand-prefixed because both brands attend the same shows —
+  // without this, "SEMA 2026 — Contacts" would collide between R1 and DFC.
+  const id = `${brand.id}-${slugify(name)}`;
+
+  // The HubSpot list name is prefixed too, so it is identifiable among the
+  // hundreds of lists already in the portal.
+  const listName = `${brand.shortName} · ${name}`;
 
   if (audienceExists(id)) {
     throw new Error(
@@ -113,18 +137,18 @@ export async function createAudience({
     );
   }
 
-  const filterBranch = buildFilterBranch({ shows, sources });
-  const definition = { shows, sources, filterBranch };
+  const filterBranch = buildFilterBranch({ shows, sources, brand: brand.id });
+  const definition = { brand: brand.id, shows, sources, filterBranch };
 
   if (dryRun) {
-    return { dryRun: true, id, name, definition };
+    return { dryRun: true, id, name, listName, brand: brand.id, definition };
   }
 
   // DYNAMIC means HubSpot keeps membership up to date as contacts change,
   // which is what we want — a static snapshot goes stale the moment the next
   // roster lands.
   const list = await hubspot.createList({
-    name,
+    name: listName,
     processingType: "DYNAMIC",
     filterBranch,
   });
@@ -132,6 +156,7 @@ export async function createAudience({
   const audience = newAudience({
     id,
     name,
+    brand: brand.id,
     purpose,
     shows,
     sources,
@@ -143,6 +168,8 @@ export async function createAudience({
   record(ACTIONS.AUDIENCE_CREATED, {
     audienceId: id,
     audienceName: name,
+    brand: brand.id,
+    type: "list",
     purpose,
     shows,
     sources,
@@ -172,6 +199,7 @@ export async function createAudience({
  * @param {boolean} options.dryRun
  */
 export async function createGeoAudience({
+  brand: brandInput,
   show,
   name,
   purpose = "",
@@ -180,24 +208,26 @@ export async function createGeoAudience({
   rings,
   dryRun = false,
 }) {
+  const brand = requireBrand(brandInput);
   const spec = buildGeoSpec(show, { leadDays, lagDays, rings });
   const audienceName = name || `${show.name} — Geo`;
-  const id = slugify(audienceName);
+  const id = `${brand.id}-${slugify(audienceName)}`;
 
   if (audienceExists(id)) {
     throw new Error(`Audience "${id}" already exists.`);
   }
 
-  if (dryRun) return { dryRun: true, id, name: audienceName, spec };
+  if (dryRun) return { dryRun: true, id, name: audienceName, brand: brand.id, spec };
 
   const audience = newAudience({
     id,
     name: audienceName,
+    brand: brand.id,
     type: "geo",
     purpose: purpose || `Reach everyone at ${show.name} during the show window.`,
     shows: [show.id],
     sources: [],
-    definition: { geo: spec },
+    definition: { brand: brand.id, geo: spec },
     hubspotListId: null,
   });
 
@@ -205,6 +235,7 @@ export async function createGeoAudience({
   record(ACTIONS.AUDIENCE_CREATED, {
     audienceId: id,
     audienceName,
+    brand: brand.id,
     type: "geo",
     purpose: audience.purpose,
     shows: [show.id],
@@ -237,9 +268,9 @@ export async function refreshAudience(id, note = "") {
 }
 
 /** Refreshes every active audience. Cheap, and keeps the report trustworthy. */
-export async function refreshAll(note = "bulk refresh") {
+export async function refreshAll(note = "bulk refresh", { brand = null } = {}) {
   const results = [];
-  for (const audience of listAudiences({ includeRetired: false })) {
+  for (const audience of listAudiences({ includeRetired: false, brand })) {
     // Geo audiences have no list to measure — their "size" is a place, not a count.
     if (audience.type === "geo" || !audience.hubspotListId) continue;
     try {

@@ -146,5 +146,70 @@ is the only reason it exists.
 - **Campaign creation.** Ben builds paid search and social himself; someone else
   owns email. This tool tracks audiences and records where they are used. The
   `destinations` array is the handoff.
-- **A web UI.** A CLI is easier for someone else in the org to read, edit and
-  trust than a server they have to run.
+- **A hosted web app.** There is a local UI (`tsf ui`), but it binds to
+  localhost and is meant to be run by the person doing the work. Putting contact
+  data and a write-capable HubSpot token on a shared server is a different
+  project with different security requirements.
+
+---
+
+## Brand separation is enforced in three places, not one
+
+R1 Concepts and Dynamic Friction share a HubSpot portal. They do not share
+audiences, and a leak between them is the kind of mistake nobody notices until
+a DFC email lands on an R1 customer.
+
+One check would not be enough, so brand is enforced at three levels:
+
+1. **`ts_brand` on the contact**, and every list audience filters on it first.
+2. **A brand-scoped dedupe key** — `tsf:dfc:someone@shop.com`. The same person
+   can be an R1 contact *and* a DFC contact; they are two records with separate
+   consent and engagement history, and merging them would be wrong.
+3. **Brand-prefixed audience ids** — `dfc-sema-2026-contacts`. Both brands
+   attend the same shows, so unprefixed ids would collide on the same slug.
+
+There is no default brand and no "all brands" option when writing. `--brand` is
+required on `import` and on `audience create`, and `requireBrand()` throws with
+the valid options rather than guessing. Reading is different — the UI's brand
+switch and `--brand` on read commands are filters, and "All" is fine there.
+
+The ids and accent colours are duplicated from
+`paid-media-console/src/data/catalog.ts` so the two tools read as one suite.
+
+### HubSpot business units
+
+The portal already has Business Units, and those are the right thing to align
+to rather than inventing a parallel field:
+
+| Business unit | Id |
+| --- | --- |
+| Dynamic Friction | 311464 |
+| Drilled Rotors | 311463 |
+| R1 Concepts | root unit — **id unknown** |
+
+The ids came from the `business_unit_optout_*` contact properties.
+`hs_all_assigned_business_unit_ids` ("Brands") is the property that holds them.
+Reading the business-units API directly returns 403 — the app lacks the scope —
+so R1's id is `null` in `data/brands.json`. Fill it in when you have it.
+
+Note that Drilled Rotors is a third brand in the portal. It is not in
+`data/brands.json` because this program covers two; add it there if that changes.
+
+---
+
+## The UI is plain HTML with no build step
+
+`tsf ui` starts a small Node HTTP server that serves `ui/` and a JSON API. No
+framework, no bundler, no TypeScript. Open `ui/app.js` in any editor and what
+you see is what runs — which is the point, because someone else in the org has
+to be able to change it.
+
+The whole UI re-renders on every state change. That is slower than a real
+framework and much easier to follow, which is the right trade for a tool a few
+people run locally.
+
+It binds to `127.0.0.1` only. The tool holds contact data and a HubSpot token
+with write access, and neither should be reachable from the network.
+
+Uploads are sent as JSON text rather than multipart, because the browser has
+already read the file and a multipart parser would be a dependency for no gain.

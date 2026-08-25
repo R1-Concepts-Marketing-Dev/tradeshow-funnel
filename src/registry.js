@@ -89,7 +89,7 @@ export function record(action, details = {}) {
  * @param {string} [options.since]       ISO date; only events on or after it
  * @param {number} [options.limit]       cap the number returned
  */
-export function readHistory({ action, audienceId, since, limit = Infinity } = {}) {
+export function readHistory({ action, audienceId, brand, since, limit = Infinity } = {}) {
   ensureDataDirs();
   const files = fs
     .readdirSync(PATHS.history)
@@ -114,6 +114,9 @@ export function readHistory({ action, audienceId, since, limit = Infinity } = {}
       }
       if (action && entry.action !== action) continue;
       if (audienceId && entry.audienceId !== audienceId) continue;
+      // Entries with no brand (a show being added, a venue researched) are
+      // portfolio-level and stay visible whichever brand you are looking at.
+      if (brand && entry.brand && entry.brand !== brand) continue;
       if (since && entry.at < since) continue;
       out.push(entry);
       if (out.length >= limit) return out;
@@ -133,6 +136,7 @@ export function readHistory({ action, audienceId, since, limit = Infinity } = {}
 export function newAudience({
   id,
   name,
+  brand,
   type = "list",
   purpose = "",
   shows = [],
@@ -145,6 +149,10 @@ export function newAudience({
   return {
     id,
     name,
+
+    // Which business this audience belongs to. Required — R1 and DFC keep
+    // separate audiences and must never be mixed. See src/brands.js.
+    brand,
 
     // "list" — people we hold contact details for, synced as a customer list.
     // "geo"  — a place and a time window. No PII, no size floor, and it works
@@ -197,13 +205,14 @@ export function loadAudience(id) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-export function listAudiences({ includeRetired = true } = {}) {
+export function listAudiences({ includeRetired = true, brand = null } = {}) {
   ensureDataDirs();
   return fs
     .readdirSync(PATHS.audiences)
     .filter((name) => name.endsWith(".json"))
     .map((name) => JSON.parse(fs.readFileSync(path.join(PATHS.audiences, name), "utf8")))
     .filter((audience) => includeRetired || audience.status === "active")
+    .filter((audience) => !brand || audience.brand === brand)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
@@ -215,6 +224,7 @@ export function recordSize(audience, size, note = "") {
   record(ACTIONS.AUDIENCE_REFRESHED, {
     audienceId: audience.id,
     audienceName: audience.name,
+    brand: audience.brand,
     size,
     previousSize: previous,
     delta: previous === null ? null : size - previous,
@@ -238,6 +248,7 @@ export function setDestination(audience, { platform, status, externalId = null, 
   record(ACTIONS.AUDIENCE_DESTINATION_SET, {
     audienceId: audience.id,
     audienceName: audience.name,
+    brand: audience.brand,
     platform,
     status,
     externalId,
@@ -250,7 +261,7 @@ export function addNote(audience, text) {
   const { actor } = loadConfig();
   audience.notes.push({ at: new Date().toISOString(), actor, text });
   saveAudience(audience);
-  record(ACTIONS.NOTE, { audienceId: audience.id, audienceName: audience.name, text });
+  record(ACTIONS.NOTE, { audienceId: audience.id, audienceName: audience.name, brand: audience.brand, text });
   return audience;
 }
 
@@ -261,6 +272,7 @@ export function retireAudience(audience, reason = "") {
   record(ACTIONS.AUDIENCE_RETIRED, {
     audienceId: audience.id,
     audienceName: audience.name,
+    brand: audience.brand,
     reason,
     finalSize: audience.sizeHistory.at(-1)?.size ?? null,
   });
@@ -281,7 +293,7 @@ export function saveShows(shows) {
   fs.writeFileSync(PATHS.shows, JSON.stringify(shows, null, 2) + "\n", "utf8");
 }
 
-export function addShow({ id, name, startDate, endDate, city = "", notes = "" }) {
+export function addShow({ id, name, startDate, endDate, city = "", notes = "", brands = [] }) {
   const shows = loadShows();
   if (shows.some((show) => show.id === id)) {
     throw new Error(`Show "${id}" already exists.`);
@@ -293,6 +305,9 @@ export function addShow({ id, name, startDate, endDate, city = "", notes = "" })
     endDate,
     city,
     notes,
+    // Which brands exhibit at this show. A show can serve one or both — SEMA
+    // might carry both booths, a police expo only DFC.
+    brands,
     // Where the show physically happens. Filled in by `tsf show research`.
     // Needed for geo targeting — see src/geo.js for why that matters more
     // than it sounds.
@@ -305,7 +320,7 @@ export function addShow({ id, name, startDate, endDate, city = "", notes = "" })
   };
   shows.push(show);
   saveShows(shows);
-  record(ACTIONS.SHOW_CREATED, { showId: id, showName: name, startDate, endDate });
+  record(ACTIONS.SHOW_CREATED, { showId: id, showName: name, startDate, endDate, brands });
   return show;
 }
 
