@@ -21,6 +21,7 @@ import * as audiences from "./audiences.js";
 import * as ingest from "./ingest.js";
 import * as geo from "./geo.js";
 import * as brands from "./brands.js";
+import * as campaigns from "./campaigns.js";
 import { writeReport } from "./report.js";
 
 const UI_DIR = path.join(ROOT, "ui");
@@ -50,7 +51,73 @@ const ROUTES = {
     history: registry.readHistory({ limit: 200 }),
     sources: ingest.SOURCES,
     platforms: Object.keys(audiences.PLATFORM_FLOORS),
+    campaignTypes: campaigns.CAMPAIGN_TYPES,
   }),
+
+  /**
+   * Finds a show by name, or creates it. Called from the upload form so a new
+   * show never means a trip to another screen and back.
+   */
+  "POST /api/shows/ensure": (body) => {
+    const name = String(body.name || "").trim();
+    if (!name) throw new Error("A show name is required.");
+
+    const existing = registry
+      .loadShows()
+      .find(
+        (show) =>
+          show.id === registry.slugify(name) ||
+          show.name.toLowerCase() === name.toLowerCase()
+      );
+    if (existing) return { show: existing, created: false };
+
+    if (!body.startDate || !body.endDate) {
+      throw new Error(`"${name}" is a new show, so it needs a start and end date.`);
+    }
+
+    const showBrands = (body.brands?.length ? body.brands : brands.loadBrands().map((b) => b.id))
+      .map((id) => brands.requireBrand(id).id);
+
+    const show = registry.addShow({
+      id: registry.slugify(name),
+      name,
+      startDate: body.startDate,
+      endDate: body.endDate,
+      city: body.city || "",
+      brands: showBrands,
+    });
+    writeReport();
+    return { show, created: true };
+  },
+
+  /** Which campaign recipes can be built for a show right now. */
+  "POST /api/campaigns/available": (body) => {
+    const show = registry.loadShows().find((entry) => entry.id === body.showId);
+    if (!show) throw new Error(`No show "${body.showId}".`);
+    return {
+      show,
+      types: campaigns.availableFor(show).map((type) => ({
+        ...type,
+        audienceName: campaigns.audienceNameFor(type, show),
+      })),
+    };
+  },
+
+  /** Builds the selected campaign types. commit:false previews. */
+  "POST /api/campaigns": async (body) => {
+    const show = registry.loadShows().find((entry) => entry.id === body.showId);
+    if (!show) throw new Error(`No show "${body.showId}".`);
+    if (!body.typeIds?.length) throw new Error("Pick at least one campaign type.");
+
+    const result = await campaigns.createCampaigns({
+      brand: body.brand,
+      show,
+      typeIds: body.typeIds,
+      commit: Boolean(body.commit),
+    });
+    if (body.commit) writeReport();
+    return result;
+  },
 
   /** Parses an uploaded CSV and guesses the column mapping. No writes. */
   "POST /api/upload/inspect": (body) => {

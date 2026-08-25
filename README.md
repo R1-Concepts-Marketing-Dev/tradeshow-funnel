@@ -16,15 +16,60 @@ cp .env.example .env    # then fill it in
 node bin/tsf.js ui
 ```
 
-That opens the web interface at http://localhost:4477 — upload lists, browse
-audiences, add shows. Everything it does is also available on the command line;
-`tsf` with no arguments prints the list.
+That opens the web interface at http://localhost:4477. It lands on **Upload**,
+because that is the job: drop a list, say which brand and show it belongs to,
+check the preview, commit, then pick which campaigns to build for that show.
+
+Everything the UI does is also on the command line; `tsf` with no arguments
+prints the list.
 
 ```bash
 npm run tsf -- audience list
 ```
 
 Or add `bin/tsf.js` to your PATH and just type `tsf`.
+
+---
+
+## The upload flow
+
+1. **Drop the CSV.** Columns are guessed from the header row.
+2. **Brand and show.** The show field is a text box, not a dropdown — type any
+   name. If it does not exist yet, the dates appear right there and the show is
+   created when you run the preview. You never leave this screen.
+3. **Check the mapping.** Fix anything the guess got wrong.
+4. **Preview, then commit.** Nothing reaches HubSpot until Commit. The preview
+   shows created / updated / merged / rejected, with the reason for every
+   rejected row.
+5. **Build campaigns.** Once the list is in, pick what to run for that show.
+
+---
+
+## Campaign types
+
+Step 5 is the point of the whole thing: the list is loaded, so what do you run?
+Each type is a recipe with the window, radius and source filter already decided,
+so you are not re-making those calls every show.
+
+| Type | Kind | What it does |
+| --- | --- | --- |
+| **Pre-show awareness** | geo | Campus and metro rings, the 5 days up to opening. Reaches people while they are deciding which booths are worth their time. |
+| **Booth traffic** | geo | Venue ring only, the show days. Highest intent, and it does not care how many contacts you have. |
+| **Post-show retargeting** | list | Everyone the show produced, any source. |
+| **Booth-engaged nurture** | list | Only tablet and badge-scan — the people who actually stopped. Best segment for email. |
+| **Lookalike seed** | list | The rolling pool across every show. Reused, never recreated per show, because that is what clears the platform floors. |
+
+The two geo windows are built not to overlap: pre-show ends the day booth
+traffic starts, so you are never bidding against yourself.
+
+Each one creates an **audience**. You build the campaign itself in Google or
+Meta — the audience carries the window, the radius and the presence setting.
+
+```bash
+tsf campaign types
+tsf campaign create --brand dfc --show sema-2026 --all
+tsf campaign create --brand dfc --show sema-2026 --types pre-show,booth-traffic --commit
+```
 
 ---
 
@@ -137,6 +182,7 @@ opens with a comment saying what it does and when you would edit it.
 | `src/registry.js` | **The core.** Audience records and the history log. |
 | `src/audiences.js` | Creating audiences; platform floors; readiness. |
 | `src/geo.js` | Venue lookup, radius rings, run windows. |
+| `src/campaigns.js` | The campaign recipes. Add a new one here — it is all data. |
 | `src/ingest.js` | CSV in, contacts out. |
 | `src/normalize.js` | Cleaning emails, phones, names. Pure functions. |
 | `src/merge.js` | Duplicate matching and which value wins. |

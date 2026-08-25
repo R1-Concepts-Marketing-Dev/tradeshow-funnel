@@ -205,11 +205,12 @@ export async function createGeoAudience({
   purpose = "",
   leadDays,
   lagDays,
+  windowMode,
   rings,
   dryRun = false,
 }) {
   const brand = requireBrand(brandInput);
-  const spec = buildGeoSpec(show, { leadDays, lagDays, rings });
+  const spec = buildGeoSpec(show, { leadDays, lagDays, windowMode, rings });
   const audienceName = name || `${show.name} — Geo`;
   const id = `${brand.id}-${slugify(audienceName)}`;
 

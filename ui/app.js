@@ -22,7 +22,8 @@ const state = {
   sources: [],
   platforms: [],
 
-  view: "audiences",
+  // Upload is the job this tool exists for, so it is where you land.
+  view: "upload",
   brandFilter: null, // null = all brands
 
   upload: {
@@ -34,6 +35,14 @@ const state = {
     sample: [],
     fields: [],
     preview: null,
+    showId: null,      // resolved once the show is created or matched
+  },
+
+  campaignTypes: [],
+  campaigns: {
+    showId: null,
+    types: [],         // availability, per show
+    selected: new Set(),
   },
 };
 
@@ -404,16 +413,36 @@ const SOURCE_NOTES = {
   referral: "Passed to you by someone else.",
 };
 
+/** Matches what has been typed in the show box against the known shows. */
+function matchTypedShow() {
+  const typed = $("#up-show").value.trim();
+  if (!typed) return { typed, show: null };
+  const needle = typed.toLowerCase();
+  const show = state.shows.find(
+    (s) => s.name.toLowerCase() === needle || s.id.toLowerCase() === needle
+  );
+  return { typed, show: show || null };
+}
+
 function renderUpload() {
   const upload = state.upload;
 
   fillSelect($("#up-brand"), state.brands.map((b) => ({ value: b.id, label: b.name })), "Choose…");
-  fillSelect(
-    $("#up-show"),
-    state.shows.map((s) => ({ value: s.id, label: `${s.name} (${s.startDate})` })),
-    "Choose…"
-  );
   fillSelect($("#up-source"), state.sources.map((s) => ({ value: s, label: s })));
+
+  // The show field is a free-text box with suggestions, not a dropdown — you
+  // should never have to leave this screen to add a show.
+  $("#show-options").innerHTML = state.shows
+    .map((s) => `<option value="${esc(s.name)}">${esc(s.startDate)} · ${esc(s.city || "")}</option>`)
+    .join("");
+
+  const { typed, show } = matchTypedShow();
+  const isNew = Boolean(typed) && !show;
+  $("#new-show").hidden = !isNew;
+  $("#new-show-name").textContent = typed;
+  $("#show-note").textContent = show
+    ? `${show.name} — ${show.startDate} → ${show.endDate}${show.venue ? "" : " · no venue yet"}`
+    : "Type any name. If it is new, you will be asked for the dates here.";
 
   if (state.brandFilter) $("#up-brand").value = state.brandFilter;
   $("#source-note").textContent = SOURCE_NOTES[$("#up-source").value] || "";
@@ -451,7 +480,9 @@ function renderUpload() {
       .join("");
   }
 
-  const ready = Boolean(upload.text && $("#up-brand").value && $("#up-show").value);
+  // A new show needs dates before it can be created.
+  const newShowOk = !isNew || ($("#ns-start").value && $("#ns-end").value);
+  const ready = Boolean(upload.text && $("#up-brand").value && typed && newShowOk);
   $("#btn-preview").disabled = !ready;
   $("#btn-commit").disabled = !upload.preview || upload.preview.summary.committed;
   $('[data-step="2"]').classList.toggle("is-done", ready);
@@ -498,12 +529,100 @@ function renderPreview(result) {
         : ""
     }
     ${
+      s.committed
+        ? ""
+        : ""
+    }
+    ${
       result.review.length
         ? `<div class="notice warn"><b>${result.review.length} possible duplicate(s) need a human.</b>
              These matched on name and company only, which is right often enough to be useful and
              wrong often enough that nothing is merged automatically.
              <ul>${result.review.slice(0, 8).map((r) => `<li>${esc(r.email)}</li>`).join("")}</ul>
            </div>`
+        : ""
+    }`;
+}
+
+// ---------------------------------------------------------------------------
+// Step 5 — campaigns for the show that was just loaded
+// ---------------------------------------------------------------------------
+
+/** Loads which recipes are buildable for a show and shows the picker. */
+async function openCampaignStep(showId) {
+  const result = await api("/api/campaigns/available", { showId });
+  state.campaigns.showId = showId;
+  state.campaigns.types = result.types;
+  // Pre-tick everything that can actually be built — the common case is "all
+  // of them", and unticking is less work than ticking five boxes.
+  state.campaigns.selected = new Set(
+    result.types.filter((t) => t.available).map((t) => t.id)
+  );
+  $("#step-campaigns").hidden = false;
+  renderCampaigns(result.show);
+  $("#step-campaigns").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCampaigns(show) {
+  const brand = brandOf($("#up-brand").value);
+  $("#campaign-intro").innerHTML =
+    `Pick what to run for <b>${esc(show.name)}</b>${brand ? ` as <b>${esc(brand.name)}</b>` : ""}. ` +
+    `Each one creates an audience with the window, radius and source filter already set — ` +
+    `you build the campaign itself in the ad platform.`;
+
+  $("#campaign-grid").innerHTML = state.campaigns.types
+    .map((type) => {
+      const checked = state.campaigns.selected.has(type.id);
+      return `<label class="campaign ${type.available ? "" : "is-blocked"} ${checked ? "is-on" : ""}">
+        <input type="checkbox" class="ct" data-type="${esc(type.id)}"
+               ${checked ? "checked" : ""} ${type.available ? "" : "disabled"}>
+        <div class="campaign-body">
+          <div class="campaign-title">
+            ${esc(type.name)}
+            <span class="chip ${type.kind === "geo" ? "geo" : ""}">${esc(type.kind)}</span>
+          </div>
+          <p class="campaign-summary">${esc(type.summary)}</p>
+          <p class="campaign-creates"><b>Creates:</b> ${esc(type.creates)}</p>
+          ${
+            type.blockedReason
+              ? `<p class="campaign-blocked">${esc(type.blockedReason)}
+                   <button type="button" class="btn btn-sm ct-research" data-show="${esc(show.id)}">Look up venue</button>
+                 </p>`
+              : `<p class="campaign-name">→ <code>${esc(type.audienceName)}</code></p>`
+          }
+        </div>
+      </label>`;
+    })
+    .join("");
+}
+
+/** Shows what the campaign step did, or would do. */
+function renderCampaignResult(result, committed) {
+  const lines = result.created
+    .map((entry) => {
+      const audience = entry.audience;
+      const geo = audience.spec || audience.definition?.geo;
+      const detail = geo
+        ? `${geo.window.runStart} → ${geo.window.runEnd} · ${geo.rings.map((r) => r.name).join(", ")}`
+        : audience.listName || audience.id;
+      return `<li><b>${esc(entry.typeName)}</b> — <code>${esc(audience.id)}</code><br>
+              <span class="hint">${esc(detail)}</span></li>`;
+    })
+    .join("");
+
+  $("#campaign-out").innerHTML = `
+    ${
+      committed
+        ? `<div class="notice good"><b>Created ${result.created.length} audience(s).</b>
+             They are in the registry and on the Audiences tab. Build the campaigns
+             themselves in Google and Meta — each audience carries the window and radius.</div>`
+        : `<div class="notice info"><b>Nothing has been created.</b> This is what would be built.</div>`
+    }
+    ${lines ? `<ul class="campaign-result">${lines}</ul>` : ""}
+    ${
+      result.skipped.length
+        ? `<div class="notice warn"><b>Skipped ${result.skipped.length}:</b>
+             <ul>${result.skipped.map((sk) => `<li>${esc(sk.typeId)} — ${esc(sk.reason)}</li>`).join("")}</ul></div>`
         : ""
     }`;
 }
@@ -717,20 +836,6 @@ document.addEventListener("click", async (event) => {
   if (target.closest("#scrim")) return closeDrawer();
 
   // --- shows ---
-  if (target.closest("#btn-add-show")) {
-    return run(async () => {
-      await api("/api/shows", {
-        name: $("#show-name").value.trim(),
-        startDate: $("#show-start").value,
-        endDate: $("#show-end").value,
-        city: $("#show-city").value.trim(),
-      });
-      $("#show-name").value = $("#show-city").value = "";
-      toast("Show added", "good");
-      await loadState();
-    });
-  }
-
   const research = target.closest("[data-research]");
   if (research) {
     const showId = research.dataset.research;
@@ -784,26 +889,95 @@ document.addEventListener("click", async (event) => {
   if (target.closest("#btn-preview") || target.closest("#btn-commit")) {
     const commit = Boolean(target.closest("#btn-commit"));
     return run(async () => {
+      // Resolve the typed show name to a real show, creating it if new. This is
+      // why the show field is a text box: no trip to another screen and back.
+      const { typed } = matchTypedShow();
+      const ensured = await api("/api/shows/ensure", {
+        name: typed,
+        startDate: $("#ns-start").value,
+        endDate: $("#ns-end").value,
+        city: $("#ns-city").value,
+      });
+      if (ensured.created) {
+        toast(`Created show "${ensured.show.name}"`, "good");
+        await loadState();
+        state.view = "upload";
+      }
+      state.upload.showId = ensured.show.id;
+
       toast(commit ? "Writing to HubSpot…" : "Running preview…");
       const result = await api("/api/import", {
         text: state.upload.text,
         filename: state.upload.filename,
         brand: $("#up-brand").value,
-        showId: $("#up-show").value,
+        showId: ensured.show.id,
         source: $("#up-source").value,
         mapping: state.upload.mapping,
         commit,
       });
       state.upload.preview = result;
+      renderUpload();
       renderPreview(result);
       $("#btn-commit").disabled = commit;
       $('[data-step="4"]').classList.toggle("is-done", commit);
+
       if (commit) {
         toast("Committed to HubSpot", "good");
         await loadState();
         state.view = "upload";
         render();
         renderPreview(result);
+        // The list is in. Now the actual question: what do we run for it?
+        await openCampaignStep(ensured.show.id);
+      }
+    });
+  }
+
+  // --- step 5: campaigns ---
+  const ctResearch = target.closest(".ct-research");
+  if (ctResearch) {
+    return run(async () => {
+      const show = state.shows.find((s) => s.id === ctResearch.dataset.show);
+      const guess = prompt(
+        "Venue name and city — the more complete, the better the match.",
+        `${show?.city ? show.name + ", " + show.city : show?.name || ""}`
+      );
+      if (!guess) return;
+      toast("Looking up the venue…");
+      await api("/api/shows/research", { showId: ctResearch.dataset.show, venue: guess });
+      toast("Venue found — geo campaigns unlocked", "good");
+      await loadState();
+      state.view = "upload";
+      render();
+      if (state.upload.preview) renderPreview(state.upload.preview);
+      await openCampaignStep(ctResearch.dataset.show);
+    });
+  }
+
+  const campaignButton = target.closest("#btn-campaign-preview, #btn-campaign-create");
+  if (campaignButton) {
+    const commit = campaignButton.id === "btn-campaign-create";
+    return run(async () => {
+      const typeIds = [...state.campaigns.selected];
+      if (!typeIds.length) throw new Error("Pick at least one campaign type.");
+
+      const result = await api("/api/campaigns", {
+        brand: $("#up-brand").value,
+        showId: state.campaigns.showId,
+        typeIds,
+        commit,
+      });
+      renderCampaignResult(result, commit);
+      if (commit) {
+        toast(`Created ${result.created.length} audience(s)`, "good");
+        await loadState();
+        state.view = "upload";
+        render();
+        if (state.upload.preview) renderPreview(state.upload.preview);
+        $("#step-campaigns").hidden = false;
+        renderCampaigns(state.shows.find((s) => s.id === state.campaigns.showId));
+        renderCampaignResult(result, commit);
+        $('[data-step="5"]').classList.add("is-done");
       }
     });
   }
@@ -820,14 +994,29 @@ document.addEventListener("change", async (event) => {
     return renderUpload();
   }
 
-  if (target.matches("#up-brand, #up-show, #up-source")) {
+  if (target.matches("#up-brand, #up-show, #up-source, #ns-start, #ns-end, #ns-city")) {
     state.upload.preview = null;
     return renderUpload();
+  }
+
+  if (target.matches(".ct")) {
+    const id = target.dataset.type;
+    if (target.checked) state.campaigns.selected.add(id);
+    else state.campaigns.selected.delete(id);
+    target.closest(".campaign")?.classList.toggle("is-on", target.checked);
+    return;
   }
 
   if (target.matches("#file-input")) {
     const file = target.files[0];
     if (file) await acceptFile(file);
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (event.target.matches("#up-show")) {
+    state.upload.preview = null;
+    renderUpload();
   }
 });
 

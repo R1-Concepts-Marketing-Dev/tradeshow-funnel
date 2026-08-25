@@ -91,23 +91,64 @@ export function daysBetween(startDate, endDate) {
 }
 
 /**
+ * Which slice of the show to run in. A campaign aimed at people deciding which
+ * booths to visit is not the same campaign as one aimed at people already
+ * standing in the hall, and they should not share a window.
+ *
+ *   full    lead days before → lag days after   (the default)
+ *   pre     lead days before → the day it opens
+ *   during  the show days only
+ *   post    the last day → lag days after
+ */
+export const WINDOW_MODES = ["full", "pre", "during", "post"];
+
+/**
  * Builds the full targeting spec for a show.
  *
  * @param {object} show      a show record from the registry
  * @param {object} options
  * @param {number} options.leadDays
  * @param {number} options.lagDays
+ * @param {string} options.windowMode  one of WINDOW_MODES
  * @param {Array}  options.rings  defaults to DEFAULT_RINGS
  */
-export function buildGeoSpec(show, { leadDays = DEFAULT_LEAD_DAYS, lagDays = DEFAULT_LAG_DAYS, rings = DEFAULT_RINGS } = {}) {
+export function buildGeoSpec(
+  show,
+  {
+    leadDays = DEFAULT_LEAD_DAYS,
+    lagDays = DEFAULT_LAG_DAYS,
+    windowMode = "full",
+    rings = DEFAULT_RINGS,
+  } = {}
+) {
   if (!show.venue?.lat || !show.venue?.lng) {
     throw new Error(
       `Show "${show.id}" has no venue coordinates. Run: tsf show research --id ${show.id} --venue "<venue name and city>"`
     );
   }
+  if (!WINDOW_MODES.includes(windowMode)) {
+    throw new Error(`Unknown window mode "${windowMode}". Use one of: ${WINDOW_MODES.join(", ")}`);
+  }
 
-  const runStart = shiftDate(show.startDate, -leadDays);
-  const runEnd = shiftDate(show.endDate, lagDays);
+  let runStart;
+  let runEnd;
+  switch (windowMode) {
+    case "pre":
+      runStart = shiftDate(show.startDate, -leadDays);
+      runEnd = show.startDate;
+      break;
+    case "during":
+      runStart = show.startDate;
+      runEnd = show.endDate;
+      break;
+    case "post":
+      runStart = show.endDate;
+      runEnd = shiftDate(show.endDate, lagDays);
+      break;
+    default:
+      runStart = shiftDate(show.startDate, -leadDays);
+      runEnd = shiftDate(show.endDate, lagDays);
+  }
 
   return {
     showId: show.id,
@@ -121,6 +162,7 @@ export function buildGeoSpec(show, { leadDays = DEFAULT_LEAD_DAYS, lagDays = DEF
       totalDays: daysBetween(runStart, runEnd),
       leadDays,
       lagDays,
+      mode: windowMode,
     },
     rings: rings.map((ring) => ({
       ...ring,

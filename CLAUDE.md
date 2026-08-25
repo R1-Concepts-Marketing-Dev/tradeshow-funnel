@@ -36,6 +36,20 @@ figure as if it were one audience. Brand definitions are in `data/brands.json`.
 History entries carry a `brand` field. Entries without one (a show being added,
 a venue researched) are portfolio-level and apply to both.
 
+## Audiences come from campaign types
+
+Most audiences are built by a **campaign type** — a recipe in `src/campaigns.js`
+that fixes the window, radius and source filter. The `purpose` field on an
+audience is the recipe's summary, so it usually says which one made it.
+
+The recipes are `pre-show`, `booth-traffic`, `post-show-retarget`,
+`booth-engaged` and `lookalike-seed`. If asked what something is for, quote the
+purpose rather than guessing from the name.
+
+`lookalike-seed` is pooled: one audience per brand across every show, named
+"Trade Show Universe". It is deliberately not per-show — a single show does not
+clear the platform floors.
+
 ## The two kinds of audience
 
 Check the `type` field before answering — they are not comparable.

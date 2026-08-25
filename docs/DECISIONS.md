@@ -213,3 +213,54 @@ with write access, and neither should be reachable from the network.
 
 Uploads are sent as JSON text rather than multipart, because the browser has
 already read the file and a multipart parser would be a dependency for no gain.
+
+---
+
+## The show field is a text box, not a dropdown
+
+A dropdown means: notice the show is missing, leave the upload screen, go to
+Shows, add it, come back, re-pick your file. Five steps to type a name you
+already knew.
+
+So the field is free text with suggestions. Type anything; if it does not match
+an existing show, the date fields appear inline and the show is created when you
+run the preview. The preview is the natural commit point — you were going to
+press it anyway, and creating a show is a local write to `data/shows.json`, not
+a HubSpot one.
+
+Matching is on the show's name or id, case-insensitive. A near-miss creates a
+second show rather than guessing, which is the safer failure: a duplicate show
+is visible and fixable, a wrongly-merged one is not.
+
+---
+
+## Campaign types are recipes, not campaigns
+
+`src/campaigns.js` holds five named recipes. Each turns one show into one
+audience with the window, radius and source filter already decided.
+
+They exist because those decisions are the same every show, and re-deriving them
+by hand each time is how you end up with a booth-traffic campaign running a
+25-mile radius for three weeks.
+
+What they are **not** is campaign creation. Nothing here calls the Google or
+Meta APIs to build a campaign — Ben does that himself. The audience is the
+handoff, and it carries the window, the rings and the presence setting.
+
+The two geo recipes are built not to overlap:
+
+| Recipe | Window | Rings |
+| --- | --- | --- |
+| Pre-show awareness | 5 days before → opening day | campus, metro |
+| Booth traffic | the show days | venue |
+
+Pre-show ends the day booth traffic starts. Overlapping them means bidding
+against yourself for the same person on the same day.
+
+`lookalike-seed` is `pooled: true`, which means it takes no show filter and
+keeps a fixed name. Building one seed per show is exactly the mistake that puts
+every audience under the platform floors — see the section above on why one show
+is not an audience. Running it for a second show reports "already exists —
+reusing it", which is the correct outcome, not an error.
+
+Adding a recipe is data: append to `CAMPAIGN_TYPES`. No logic changes.

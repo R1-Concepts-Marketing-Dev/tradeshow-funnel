@@ -27,8 +27,8 @@
 
 <nav class="tabs">
   <div class="wrap tabs-inner">
-    <button class="tab is-active" data-view="audiences">Audiences</button>
-    <button class="tab" data-view="upload">Upload</button>
+    <button class="tab is-active" data-view="upload">Upload</button>
+    <button class="tab" data-view="audiences">Audiences</button>
     <button class="tab" data-view="shows">Shows</button>
     <button class="tab" data-view="history">History</button>
     <div class="topbar-spacer"></div>
@@ -38,48 +38,16 @@
 
 <main class="wrap" id="main">
 
-  <!-- ================= AUDIENCES ================= -->
-  <section class="view" data-view="audiences">
-    <div class="stats" id="stats"></div>
-
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Audiences</h2>
-        <span class="hint" id="audience-scope"></span>
-      </div>
-      <div class="table-scroll">
-        <table class="grid" id="audience-table">
-          <thead>
-            <tr>
-              <th>Audience</th>
-              <th>Brand</th>
-              <th>Type</th>
-              <th>Shows</th>
-              <th class="right">Reach</th>
-              <th>Trend</th>
-              <th>Destinations</th>
-              <th>Checked</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <p class="empty" id="audience-empty" hidden>
-        No audiences for this brand yet. Create one from the <b>Shows</b> tab.
-      </p>
-    </div>
-  </section>
-
-  <!-- ================= UPLOAD ================= -->
-  <section class="view" data-view="upload" hidden>
+  <!-- ================= UPLOAD (the main job) ================= -->
+  <section class="view" data-view="upload">
     <div class="panel">
       <div class="panel-head">
         <h2>Upload a list</h2>
-        <span class="hint">Nothing is written until you press Commit.</span>
+        <span class="hint">Nothing reaches HubSpot until you press Commit.</span>
       </div>
 
       <ol class="steps">
-        <li class="step is-open" data-step="1">
+        <li class="step" data-step="1">
           <div class="step-head"><span class="step-n">1</span> Choose the file</div>
           <div class="step-body">
             <label class="drop" id="drop">
@@ -102,14 +70,32 @@
                 <select id="up-brand"><option value="">Choose…</option></select>
                 <p class="field-note">R1 and DFC keep separate audiences. There is no default.</p>
               </div>
+
               <div class="field">
-                <label for="up-show">Show</label>
-                <select id="up-show"><option value="">Choose…</option></select>
+                <label for="up-show">Show <span class="req">required</span></label>
+                <input id="up-show" list="show-options" autocomplete="off"
+                       placeholder="Type a show name…">
+                <datalist id="show-options"></datalist>
+                <p class="field-note" id="show-note">Type any name. If it is new, you will be asked for the dates here.</p>
               </div>
+
               <div class="field">
                 <label for="up-source">Source</label>
                 <select id="up-source"></select>
                 <p class="field-note" id="source-note"></p>
+              </div>
+            </div>
+
+            <!-- Only appears when the typed show does not exist yet. -->
+            <div class="new-show" id="new-show" hidden>
+              <div class="new-show-head">
+                <span class="chip">New show</span>
+                <span id="new-show-name"></span> will be created when you run the preview.
+              </div>
+              <div class="field-row">
+                <div class="field"><label for="ns-start">Starts</label><input id="ns-start" type="date"></div>
+                <div class="field"><label for="ns-end">Ends</label><input id="ns-end" type="date"></div>
+                <div class="field"><label for="ns-city">City</label><input id="ns-city" placeholder="Las Vegas, NV"></div>
               </div>
             </div>
           </div>
@@ -137,30 +123,57 @@
             <div id="preview-out"></div>
           </div>
         </li>
+
+        <li class="step" data-step="5" id="step-campaigns" hidden>
+          <div class="step-head"><span class="step-n">5</span> Build campaigns for this show</div>
+          <div class="step-body">
+            <p class="step-intro" id="campaign-intro"></p>
+            <div class="campaign-grid" id="campaign-grid"></div>
+            <div class="actions">
+              <button class="btn" id="btn-campaign-preview">Preview</button>
+              <button class="btn btn-primary" id="btn-campaign-create">Create selected</button>
+            </div>
+            <div id="campaign-out"></div>
+          </div>
+        </li>
       </ol>
+    </div>
+  </section>
+
+  <!-- ================= AUDIENCES ================= -->
+  <section class="view" data-view="audiences" hidden>
+    <div class="stats" id="stats"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Audiences</h2>
+        <span class="hint" id="audience-scope"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="grid" id="audience-table">
+          <thead>
+            <tr>
+              <th>Audience</th>
+              <th>Brand</th>
+              <th>Type</th>
+              <th>Shows</th>
+              <th class="right">Reach</th>
+              <th>Trend</th>
+              <th>Destinations</th>
+              <th>Checked</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="audience-empty" hidden>
+        No audiences for this brand yet. Upload a list, then build campaigns at step 5.
+      </p>
     </div>
   </section>
 
   <!-- ================= SHOWS ================= -->
   <section class="view" data-view="shows" hidden>
-    <div class="panel">
-      <div class="panel-head">
-        <h2>Add a show</h2>
-        <span class="hint">Research the venue to unlock geo targeting.</span>
-      </div>
-      <div class="panel-body">
-        <div class="field-row">
-          <div class="field"><label for="show-name">Name</label><input id="show-name" placeholder="SEMA 2026"></div>
-          <div class="field"><label for="show-start">Starts</label><input id="show-start" type="date"></div>
-          <div class="field"><label for="show-end">Ends</label><input id="show-end" type="date"></div>
-          <div class="field"><label for="show-city">City</label><input id="show-city" placeholder="Las Vegas, NV"></div>
-        </div>
-        <div class="actions">
-          <button class="btn btn-primary" id="btn-add-show">Add show</button>
-        </div>
-      </div>
-    </div>
-
     <div id="show-cards"></div>
   </section>
 

@@ -67,6 +67,66 @@ const COMMANDS = {
     },
   },
 
+  "campaign types": {
+    summary: "List the campaign recipes you can build for a show.",
+    async run() {
+      const { CAMPAIGN_TYPES } = await import("../src/campaigns.js");
+      for (const type of CAMPAIGN_TYPES) {
+        console.log(`\n  ${type.id}  [${type.kind}]${type.needsVenue ? "  (needs a venue)" : ""}`);
+        console.log(`    ${type.name}`);
+        console.log(`    ${type.summary}`);
+        console.log(`    Creates: ${type.creates}`);
+      }
+      console.log("");
+    },
+  },
+
+  "campaign create": {
+    summary: "Build campaign audiences for a show. --types a,b or --all.",
+    options: {
+      brand: { type: "string" },
+      show: { type: "string" },
+      types: { type: "string", default: "" },
+      all: { type: "boolean", default: false },
+      commit: { type: "boolean", default: false },
+    },
+    async run({ values }) {
+      require_(values, ["brand", "show"]);
+      const campaigns = await import("../src/campaigns.js");
+      const show = registry.loadShows().find((s) => s.id === values.show);
+      if (!show) throw new Error(`No show "${values.show}".`);
+
+      const available = campaigns.availableFor(show);
+      const typeIds = values.all
+        ? available.filter((t) => t.available).map((t) => t.id)
+        : splitCsv(values.types);
+
+      if (!typeIds.length) {
+        throw new Error("Pick types with --types, or use --all. See: tsf campaign types");
+      }
+
+      const result = await campaigns.createCampaigns({
+        brand: values.brand,
+        show,
+        typeIds,
+        commit: values.commit,
+      });
+
+      for (const entry of result.created) {
+        const audience = entry.audience;
+        const geo = audience.spec || audience.definition?.geo;
+        console.log(`  ${values.commit ? "created" : "would create"}  ${entry.typeName}`);
+        console.log(`    ${audience.id}`);
+        if (geo) console.log(`    ${geo.window.runStart} → ${geo.window.runEnd}  rings: ${geo.rings.map((r) => r.name).join(", ")}`);
+      }
+      for (const entry of result.skipped) {
+        console.log(`  skipped   ${entry.typeId} — ${entry.reason}`);
+      }
+      if (!values.commit) console.log("\nNothing was created. Re-run with --commit.");
+      else writeReport();
+    },
+  },
+
   "brands": {
     summary: "List the brands and their HubSpot business units.",
     async run() {
