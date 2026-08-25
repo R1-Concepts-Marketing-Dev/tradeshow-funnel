@@ -15,7 +15,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ROOT } from "./config.js";
+import { ROOT, loadConfig } from "./config.js";
+import * as auth from "./auth.js";
 import * as registry from "./registry.js";
 import * as audiences from "./audiences.js";
 import * as ingest from "./ingest.js";
@@ -53,6 +54,9 @@ const ROUTES = {
     platforms: Object.keys(audiences.PLATFORM_FLOORS),
     campaignTypes: campaigns.CAMPAIGN_TYPES,
   }),
+
+  /** Who is signed in, for the header. */
+  "GET /api/me": (_body, user) => ({ user: user || null }),
 
   /**
    * Finds a show by name, or creates it. Called from the upload form so a new
@@ -373,9 +377,26 @@ function serveStatic(response, urlPath) {
   fs.createReadStream(file).pipe(response);
 }
 
-export function startServer({ port = 4477, host = "127.0.0.1" } = {}) {
+export function startServer(options = {}) {
+  const config = loadConfig();
+  const port = options.port ?? config.server.port;
+  const host = options.host ?? config.server.host;
+
+  // Refuses to expose the app to the network without sign-in. See src/auth.js.
+  auth.assertSafeToBind(host);
+
   const server = http.createServer(async (request, response) => {
-    const url = new URL(request.url, `http://${host}`);
+    const url = new URL(request.url, `http://${request.headers.host || host}`);
+
+    // ---- sign-in routes, which must work before the gate ----
+    if (url.pathname === "/auth/login") return auth.startLogin(request, response);
+    if (url.pathname === "/auth/callback") return auth.completeLogin(request, response, url);
+    if (url.pathname === "/auth/logout") return auth.logout(response);
+
+    // ---- everything else requires a session ----
+    const user = auth.gate(request, response, url);
+    if (!user) return; // gate already answered
+
     const key = `${request.method} ${url.pathname}`;
     const handler = ROUTES[key];
 
@@ -386,7 +407,10 @@ export function startServer({ port = 4477, host = "127.0.0.1" } = {}) {
 
     try {
       const body = request.method === "GET" ? Object.fromEntries(url.searchParams) : await readBody(request);
-      sendJson(response, 200, await handler(body));
+      // The signed-in person is who the history log records, not whatever the
+      // machine's username happens to be.
+      process.env.TSF_ACTOR = user.email;
+      sendJson(response, 200, await handler(body, user));
     } catch (error) {
       // The UI shows this text directly, so it needs to read like a sentence.
       sendJson(response, 400, { error: error.message });
@@ -394,6 +418,12 @@ export function startServer({ port = 4477, host = "127.0.0.1" } = {}) {
   });
 
   return new Promise((resolve) => {
-    server.listen(port, host, () => resolve({ server, url: `http://${host}:${port}` }));
+    server.listen(port, host, () =>
+      resolve({
+        server,
+        url: `http://${host}:${port}`,
+        authed: auth.isAuthConfigured(),
+      })
+    );
   });
 }

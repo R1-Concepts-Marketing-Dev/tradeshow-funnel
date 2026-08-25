@@ -34,6 +34,7 @@ export const ACTIONS = {
   SHOW_CREATED: "show.created",
   SHOW_RESEARCHED: "show.researched",
   IMPORT_COMMITTED: "import.committed",
+  TABLET_CLAIMED: "tablet.claimed",
   AUDIENCE_CREATED: "audience.created",
   AUDIENCE_REFRESHED: "audience.refreshed",
   AUDIENCE_MEMBERS_ADDED: "audience.members_added",
