@@ -118,9 +118,11 @@ const COMMANDS = {
       passphrase: { type: "string" },
       out: { type: "string" },
       force: { type: "boolean", default: false },
+      deploy: { type: "boolean", default: false },
     },
     async run({ values }) {
-      require_(values, ["passphrase"]);
+      // No require_ here — the passphrase may come from .env instead, and
+      // publish() gives a better message than a generic missing-flag error.
       const { publish } = await import("../src/publish.js");
 
       const result = publish({
@@ -137,10 +139,37 @@ const COMMANDS = {
       for (const warning of result.warnings) console.log(`
   ! ${warning}`);
 
+      if (!values.deploy) {
+        console.log(`
+  Not deployed. Add --deploy to push it live, or host the file yourself.
+`);
+        return;
+      }
+
+      const { deploy } = await import("../src/publish.js");
+      const outcome = deploy(result.file);
+
+      if (!outcome.pushed) {
+        console.log(`
+  ${outcome.reason}
+`);
+        return;
+      }
+
+      // Work out the Pages URL from the remote, rather than hardcoding it.
+      const { execFileSync } = await import("node:child_process");
+      const remote = execFileSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).trim();
+      const match = /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?$/.exec(remote);
+      const url = match
+        ? `https://${match[1].toLowerCase()}.github.io/${match[2]}/`
+        : "(check the repo's Pages settings)";
+
       console.log(`
-  It is one self-contained file. Open it locally to check, then host it`);
-      console.log(`  wherever you like — see docs/PUBLISHING.md. Share the passphrase`);
-      console.log(`  separately from the link.
+  Pushed to the ${outcome.branch} branch.`);
+      console.log(`  Live at ${url}`);
+      console.log(`  Give it a minute the first time — Pages has to build.
+`);
+      console.log(`  Share the link and the passphrase separately.
 `);
     },
   },

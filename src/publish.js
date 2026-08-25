@@ -24,7 +24,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { PATHS, ROOT } from "./config.js";
+import { execFileSync } from "node:child_process";
+import { PATHS, ROOT, loadConfig } from "./config.js";
 import * as registry from "./registry.js";
 import * as brands from "./brands.js";
 import * as audiencesLib from "./audiences.js";
@@ -177,6 +178,52 @@ export function encryptPayload(payload, passphrase) {
 }
 
 /**
+ * Pushes the built page to the gh-pages branch, which is what GitHub Pages
+ * serves. Uses a throwaway worktree so your working tree is never touched —
+ * you can run this mid-edit without losing anything.
+ */
+export function deploy(file, { branch = "gh-pages", remote = "origin" } = {}) {
+  const git = (args, cwd = ROOT) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+  const worktree = path.join(ROOT, ".gh-pages-tmp");
+  fs.rmSync(worktree, { recursive: true, force: true });
+
+  // An orphan branch: the published page has no reason to share history with
+  // the code, and keeping them apart means a rebuild is a one-file diff.
+  let existed = true;
+  try {
+    git(["rev-parse", "--verify", `${remote}/${branch}`]);
+  } catch {
+    existed = false;
+  }
+
+  try {
+    if (existed) {
+      git(["worktree", "add", "-f", worktree, "-B", branch, `${remote}/${branch}`]);
+    } else {
+      git(["worktree", "add", "-f", "--orphan", "-b", branch, worktree]);
+    }
+
+    fs.copyFileSync(file, path.join(worktree, "index.html"));
+    // Stops GitHub trying to run Jekyll over it.
+    fs.writeFileSync(path.join(worktree, ".nojekyll"), "", "utf8");
+
+    git(["add", "-A"], worktree);
+    try {
+      git(["commit", "-m", `Publish viewer — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`], worktree);
+    } catch {
+      return { pushed: false, reason: "Nothing changed since the last publish." };
+    }
+    git(["push", "-f", remote, `${branch}:${branch}`], worktree);
+    return { pushed: true, branch };
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true });
+    try { git(["worktree", "prune"]); } catch { /* best effort */ }
+  }
+}
+
+/**
  * Writes the published page.
  *
  * @param {object} options
@@ -185,6 +232,20 @@ export function encryptPayload(payload, passphrase) {
  * @param {boolean} options.force      skip the passphrase strength check
  */
 export function publish({ passphrase, outFile, force = false }) {
+  // Falling back to .env keeps the passphrase out of your shell history, and
+  // .env is gitignored. It is the only place it is written down.
+  const pass = passphrase || loadConfig().publishPassphrase;
+  if (!pass) {
+    throw new Error(
+      "No passphrase.\n\n" +
+        "  Set it once in .env:   TSF_PUBLISH_PASSPHRASE=your-passphrase\n" +
+        "  Or pass it each time:  --passphrase \"your-passphrase\"\n\n" +
+        ".env is gitignored, so putting it there keeps it out of git and out of\n" +
+        "your shell history."
+    );
+  }
+  passphrase = pass;
+
   const problems = checkPassphrase(passphrase);
   if (problems.length && !force) {
     throw new Error(

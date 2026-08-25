@@ -8,66 +8,74 @@ conflating them is what makes this look harder than it is.
 # Part 1 — Letting people SEE it
 
 ```bash
-node bin/tsf.js publish --passphrase "your-team-passphrase"
+node bin/tsf.js publish --deploy
 ```
 
-Writes `published/index.html`. One self-contained file. Open it, type the
-passphrase, see everything. No install, no login, no HubSpot access.
+Builds the page and pushes it live. It is already set up:
 
-**It is encrypted.** The data inside is AES-GCM ciphertext behind a
-PBKDF2-derived key (600,000 rounds). Without the passphrase the file is noise —
-verified: no show name, audience name or email appears in it as readable text.
+**Live at <https://r1-concepts-marketing-dev.github.io/tradeshow-funnel/>**
+
+## Where the password is set
+
+In `.env`, one line:
+
+```
+TSF_PUBLISH_PASSPHRASE=your-passphrase-here
+```
+
+Change it, run `publish --deploy` again, and the page is re-encrypted with the
+new one. **The old passphrase stops working immediately** — that is how you
+remove someone's access.
+
+`.env` is gitignored, so it never reaches GitHub. It is the only place the
+passphrase is written down. You can also pass `--passphrase "..."` per run, but
+then it sits in your shell history.
+
+The tool refuses anything under 12 characters, letters-only, or containing an
+obvious word — the file is on the public internet, so it can be attacked
+offline for as long as someone likes.
+
+## How it is wired
+
+`--deploy` pushes to the `gh-pages` branch via a throwaway git worktree, so
+your working tree is never touched — safe to run mid-edit. Pages serves that
+branch. The `main` branch has no page in it.
+
+---
+
+## What the page is
+
+One self-contained HTML file. Open it, type the passphrase, see everything. No
+install, no login, no HubSpot access.
+
+**It is encrypted.** AES-GCM ciphertext behind a PBKDF2-derived key, 600,000
+rounds. Without the passphrase the file is noise — verified: no show name,
+audience name or email appears in it as readable text.
 
 **It holds counts and spend only.** No names, emails or phone numbers, ever.
 `buildPayload()` in `src/publish.js` is the only place that decides what goes
 in, so it is the only place to check.
 
-## Where to put it
+## Why it is encrypted even though it is our own repo
 
-`tsf publish` does **not** upload anything. It writes a file; where it goes is
-your call. Three options:
+`tradeshow-funnel` is a **public** repo — Pages does not serve private repos on
+the free plan, which is why `dfc-territory-map` is public too. So the file is on
+the open internet and the encryption is what makes that fine.
 
-### Send the file
-Email or Teams it. Works immediately, no setup. Goes stale the moment you
-generate the next one, and you will end up with five versions in circulation.
-Fine for a one-off; poor as a habit.
+The registry it is built from stays in the **private** `tradeshow-funnel-data`
+repo. The public repo holds code and one encrypted page, nothing else.
 
-### A new public repo on GitHub Pages ← what dfc-territory-map does
-This is the pattern already working here: `dfc-territory-map` is a **public**
-repo serving an encrypted page, with the raw data in a **private** repo next to
-it (`dfc-territory-data`). Same split.
+## Refreshing it
 
-It has to be a *new, separate* repo because:
+Run `publish --deploy` again after a show. The page is rebuilt from whatever the
+registry says at that moment, so pull the data repo first:
 
-- **`tradeshow-funnel` is private, and this org is on the free GitHub plan.**
-  Pages does not work on private repos there. The map is public for exactly
-  this reason.
-- Making *this* repo public would expose `data/` — show names, audience names,
-  sizes, the whole history — as plain text. The encryption would be pointless.
+```bash
+cd ../tradeshow-funnel-data && git pull && cd -
+node bin/tsf.js publish --deploy
+```
 
-So: a new public repo containing nothing but the generated `index.html`, Pages
-turned on, and the passphrase shared separately. Everyone gets a permanent link
-that is current whenever you last published.
-
-**This is your decision to make, not mine.** Creating a public repo that holds
-company data — even encrypted — is not something to do on someone's behalf.
-
-### Somewhere you already host
-If there is an intranet or a Teams/SharePoint site, drop the file there and skip
-the public-internet question entirely. Simplest of all if it exists.
-
-## On the passphrase
-
-A published file sits on the public internet, so the ciphertext can be taken
-away and attacked offline for as long as someone likes. The passphrase is what
-stands in the way.
-
-`tsf publish` refuses anything under 12 characters, letters-only, or containing
-an obvious word. Four random words is the easy way to a good one. Share it
-separately from the link — not in the same message.
-
-Same reasoning applies to the map, which has 83k shops behind it. Worth
-confirming with whoever built it that its passphrase is a strong one.
+Anyone holding the link sees the new numbers on their next load.
 
 ---
 

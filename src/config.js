@@ -113,6 +113,10 @@ export function loadConfig() {
       host: merged.TSF_HOST || "127.0.0.1",
     },
 
+    // The passphrase for the published viewer. Kept in .env so it is not
+    // retyped and not in shell history; .env is gitignored.
+    publishPassphrase: merged.TSF_PUBLISH_PASSPHRASE || "",
+
     // Stamped onto every history entry so we can tell who ran what. When people
     // are signed in, the signed-in email wins over this.
     actor: merged.TSF_ACTOR || merged.USERNAME || merged.USER || "unknown",
