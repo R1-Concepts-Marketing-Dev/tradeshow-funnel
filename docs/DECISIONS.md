@@ -86,32 +86,17 @@ enormous irrelevant audience. `tsf show geo` prints the correct setting.
 
 ---
 
-## Where tablet sign-ups actually land (as of Aug 2026)
 
-Nobody could say where the booth tablet submitted to. It turned out there is no
-single form — a form gets **cloned per event**, so submissions scatter.
+## Where booth tablet sign-ups land
 
-Found in the portal:
+There is no single tablet form — one gets cloned per event, so submissions
+scatter and carry no show identifier. That is why `shows.json` has a `formIds`
+array and why `tsf tablet claim` works off a form plus a date window rather
+than off the contact record.
 
-- **`a1c2de59-d637-4e1e-8efd-805d89587093`** — "Big Money Show 4/6/2024".
-  Fields: `email, company, warehouse_distributor_provider, primary_brake_pad_brand`.
-- **`897e89b6-62c8-48a8-a9db-a44b99043690`** — a clone of the above, adds
-  `auto_shop_name` and `firstname`. Real submissions on the show date.
-- **`5bf4f1ba-e692-4ac9-9d4f-6420003f6d04`** — "DFC event-checkin".
-  Fields: `firstname, email, phone, year, make, model, sub_model`. This is a
-  consumer/vehicle check-in, a different thing from the trade show form.
-
-None of them capture consent, and none carry a show identifier — the only link
-between a submission and a show is which clone it came through.
-
-Two consequences:
-
-1. `data/shows.json` has a `formIds` array. Use `tsf show link-form` to attach
-   the clone to the show so submissions can be traced afterwards.
-2. Going forward, use **one durable form** with a hidden show field rather than
-   a clone per event. Then `formIds` stops being needed.
-
-Use `tsf discover forms --match "show"` to find these again.
+The actual form ids, and the rest of our portal's specifics, are in
+`docs/PORTAL-NOTES.md` in the private data repo. `tsf discover forms` finds
+them again from scratch.
 
 ---
 
@@ -179,21 +164,12 @@ The ids and accent colours are duplicated from
 ### HubSpot business units
 
 The portal already has Business Units, and those are the right thing to align
-to rather than inventing a parallel field:
+to rather than inventing a parallel field. The ids, and which brand is which,
+are in `docs/PORTAL-NOTES.md` in the private data repo — they are our portal's
+internals, not something this public repo needs to carry.
 
-| Business unit | Id |
-| --- | --- |
-| Dynamic Friction | 311464 |
-| Drilled Rotors | 311463 |
-| R1 Concepts | root unit — **id unknown** |
-
-The ids came from the `business_unit_optout_*` contact properties.
 `hs_all_assigned_business_unit_ids` ("Brands") is the property that holds them.
-Reading the business-units API directly returns 403 — the app lacks the scope —
-so R1's id is `null` in `data/brands.json`. Fill it in when you have it.
 
-Note that Drilled Rotors is a third brand in the portal. It is not in
-`data/brands.json` because this program covers two; add it there if that changes.
 
 ---
 

@@ -274,10 +274,9 @@ tsf import --file next-year.csv --brand dfc --show sema-2027 --source roster_pre
 - The HubSpot properties have **not** been created yet — `tsf setup --commit` is
   yours to run against the live portal.
 - **R1's HubSpot business unit id is unknown** and is `null` in
-  `data/brands.json`. Dynamic Friction is 311464 and Drilled Rotors is 311463;
-  R1 is the root unit and reading its id needs a scope this app does not have.
-  Nothing breaks without it — the tool just cannot stamp HubSpot's own "Brands"
-  field for R1.
+  `brands.json` in the data repo. The ids are recorded in `docs/PORTAL-NOTES.md`
+  there, not here, since this repo is public. Nothing breaks without them — the
+  tool just cannot stamp HubSpot's own "Brands" field.
 - No list audience has been created yet, for the same reason.
 - TikTok has no connector. HubSpot syncs Google, Meta and LinkedIn natively;
   TikTok is the only platform that would need custom code, and it is not built.

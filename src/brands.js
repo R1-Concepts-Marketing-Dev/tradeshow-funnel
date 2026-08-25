@@ -19,12 +19,13 @@ const BRANDS_FILE = path.join(PATHS.data, "brands.json");
 /**
  * Written to data/brands.json on first run, then editable there.
  *
- * hubspotBusinessUnitId comes from the portal's Business Units. Dynamic
- * Friction is 311464 and Drilled Rotors is 311463 (confirmed via the
- * business_unit_optout_* properties). R1 Concepts is the ROOT business unit
- * and its id could not be read — the API call needs a scope this app does not
- * have. Fill it in when you have it; nothing breaks without it, the tool just
- * cannot stamp the HubSpot "Brands" field for R1.
+ * hubspotBusinessUnitId is left null here on purpose. This repo is public and
+ * the ids are our portal's internals, so the real values live in the private
+ * data repo's brands.json, which this file only seeds on a fresh setup.
+ *
+ * They came from the business_unit_optout_* contact properties — see
+ * docs/PORTAL-NOTES.md over there for how to find them again. Nothing breaks
+ * without them; the tool just cannot stamp HubSpot's own "Brands" field.
  */
 export const DEFAULT_BRANDS = [
   {
@@ -41,7 +42,7 @@ export const DEFAULT_BRANDS = [
     shortName: "DFC",
     accent: "#ef6c1a",
     accentWash: "#fdeee2",
-    hubspotBusinessUnitId: "311464",
+    hubspotBusinessUnitId: null,
   },
 ];
 
