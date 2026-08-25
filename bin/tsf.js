@@ -68,6 +68,39 @@ const COMMANDS = {
     },
   },
 
+  "publish": {
+    summary: "Build the encrypted page the team can open. Nothing is uploaded — you place the file.",
+    options: {
+      passphrase: { type: "string" },
+      out: { type: "string" },
+      force: { type: "boolean", default: false },
+    },
+    async run({ values }) {
+      require_(values, ["passphrase"]);
+      const { publish } = await import("../src/publish.js");
+
+      const result = publish({
+        passphrase: values.passphrase,
+        outFile: values.out,
+        force: values.force,
+      });
+
+      console.log(`
+  Wrote ${path.relative(process.cwd(), result.file)}`);
+      console.log(`    ${(result.bytes / 1024).toFixed(0)} KB · ${result.shows} show(s) · ${result.audiences} audience(s)`);
+      console.log(`    Counts and spend only — no contact details are in it.`);
+
+      for (const warning of result.warnings) console.log(`
+  ! ${warning}`);
+
+      console.log(`
+  It is one self-contained file. Open it locally to check, then host it`);
+      console.log(`  wherever you like — see docs/PUBLISHING.md. Share the passphrase`);
+      console.log(`  separately from the link.
+`);
+    },
+  },
+
   "show meta-names": {
     summary: "The Meta campaign and ad set names to use for a show, tagged so the report finds them.",
     options: { id: { type: "string" }, brand: { type: "string" } },

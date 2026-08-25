@@ -100,6 +100,22 @@ than making you do it:
 
 ---
 
+## Letting other people see it
+
+```bash
+node bin/tsf.js publish --passphrase "your-team-passphrase"
+```
+
+Builds one self-contained encrypted HTML file. Anyone can open it, type the
+passphrase, and see shows, audiences, sizes and spend — no install, no login, no
+HubSpot access. Counts only; no contact details go in it.
+
+It writes the file and stops there. Where you host it is your call —
+[docs/PUBLISHING.md](docs/PUBLISHING.md) covers the options, and the same doc
+covers letting other people **upload**, which is a separate problem.
+
+---
+
 ## Two brands, kept apart
 
 R1 Concepts and Dynamic Friction share a HubSpot portal but **not** their

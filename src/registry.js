@@ -42,6 +42,7 @@ export const ACTIONS = {
   AUDIENCE_RETIRED: "audience.retired",
   AUDIENCE_DESTINATION_SET: "audience.destination_set",
   REPORT_EXPORTED: "report.exported",
+  PUBLISHED: "published",
   NOTE: "note",
 };
 

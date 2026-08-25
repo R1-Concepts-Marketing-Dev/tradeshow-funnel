@@ -6,4 +6,7 @@ inbox/
 out/
 # Show reports carry spend figures and downloaded ad creative.
 exports/
+# The published page is a build artifact — it belongs wherever you host it,
+# not in this repo's history.
+published/
 *.rejects.csv
