@@ -23,9 +23,18 @@ export const ROOT = path.resolve(here, "..");
  * gitignored here — anything written to it is invisible to everyone else and
  * is not backed up. `tsf doctor` says so out loud.
  */
-const DATA_DIR = process.env.TSF_DATA_DIR
-  ? path.resolve(process.env.TSF_DATA_DIR)
-  : path.join(ROOT, "data");
+// Read the .env file here as well as the real environment. The README tells
+// people to put TSF_DATA_DIR in .env, and reading only process.env would mean
+// that silently did nothing — falling back to a gitignored ./data while
+// appearing to work, which is the exact failure this whole split is meant to
+// avoid.
+const DATA_DIR_SETTING =
+  process.env.TSF_DATA_DIR || readEnvFile(path.join(ROOT, ".env")).TSF_DATA_DIR || "";
+
+/** True when the registry is somewhere shared, rather than the throwaway default. */
+export const DATA_DIR_IS_SET = Boolean(DATA_DIR_SETTING);
+
+const DATA_DIR = DATA_DIR_SETTING ? path.resolve(DATA_DIR_SETTING) : path.join(ROOT, "data");
 
 /** Every path the tool reads or writes. Nothing else should build paths by hand. */
 export const PATHS = {
@@ -34,16 +43,15 @@ export const PATHS = {
   history: path.join(DATA_DIR, "history"),
   shows: path.join(DATA_DIR, "shows.json"),
   imports: path.join(DATA_DIR, "imports.json"),
-  // Locally the report sits at the repo root, where a person (or Claude) will
-  // look for it. With a custom data dir it follows the data instead.
-  report: process.env.TSF_DATA_DIR
-    ? path.join(DATA_DIR, "AUDIENCES.md")
-    : path.join(ROOT, "AUDIENCES.md"),
+  // The report follows the data, so it lands in the private repo alongside it.
+  report: DATA_DIR_IS_SET ? path.join(DATA_DIR, "AUDIENCES.md") : path.join(ROOT, "AUDIENCES.md"),
 };
 
 /**
  * Reads a KEY=VALUE file into a plain object. Blank lines and # comments are
  * skipped. This is deliberately tiny so there is no dotenv dependency to learn.
+ *
+ * Declared as a function so it can be called above, before its definition.
  */
 function readEnvFile(file) {
   const out = {};

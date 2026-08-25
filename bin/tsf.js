@@ -73,7 +73,8 @@ const COMMANDS = {
     async run() {
       const { PATHS, loadConfig } = await import("../src/config.js");
       const config = loadConfig();
-      const shared = Boolean(process.env.TSF_DATA_DIR);
+      const { DATA_DIR_IS_SET } = await import("../src/config.js");
+      const shared = DATA_DIR_IS_SET;
 
       console.log(`
   Registry   ${PATHS.data}`);
