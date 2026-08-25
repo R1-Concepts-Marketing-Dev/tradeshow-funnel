@@ -94,6 +94,31 @@ const ROUTES = {
     return { show, created: true };
   },
 
+  /**
+   * Booth tablet sign-ups for a show, found by its linked form(s) and dates.
+   * See src/tablet.js for why the form matters as much as the window.
+   */
+  "POST /api/tablet/claim": async (body) => {
+    const { claimTabletContacts } = await import("./tablet.js");
+    const show = registry.loadShows().find((entry) => entry.id === body.showId);
+    if (!show) throw new Error(`No show "${body.showId}".`);
+
+    const result = await claimTabletContacts({
+      brand: body.brand,
+      show,
+      bufferDays: body.bufferDays === undefined ? undefined : Number(body.bufferDays),
+      commit: Boolean(body.commit),
+      consentTextId: body.consentTextId || "",
+    });
+
+    if (body.commit) writeReport();
+    return {
+      summary: result.summary,
+      rejects: result.rejects.slice(0, 50),
+      rejectCount: result.rejects.length,
+    };
+  },
+
   /** Which campaign recipes can be built for a show right now. */
   "POST /api/campaigns/available": (body) => {
     const show = registry.loadShows().find((entry) => entry.id === body.showId);

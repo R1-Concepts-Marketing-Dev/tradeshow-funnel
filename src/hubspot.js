@@ -189,11 +189,33 @@ export async function listForms() {
   return response?.results || [];
 }
 
-export async function getFormSubmissions(formId, limit = 20) {
-  const response = await get(
-    `/form-integrations/v1/submissions/forms/${formId}?limit=${limit}`
-  );
-  return response?.results || [];
+/** This endpoint refuses a limit above 50, so anything larger has to page. */
+const FORM_SUBMISSIONS_PAGE = 50;
+
+/**
+ * Form submissions, newest first, paging until we have `limit` or run out.
+ *
+ * @param {string} formId
+ * @param {number} limit  how many to fetch in total, across pages
+ */
+export async function getFormSubmissions(formId, limit = 50) {
+  const out = [];
+  let after = null;
+
+  while (out.length < limit) {
+    const pageSize = Math.min(FORM_SUBMISSIONS_PAGE, limit - out.length);
+    const query = new URLSearchParams({ limit: String(pageSize) });
+    if (after) query.set("after", after);
+
+    const response = await get(`/form-integrations/v1/submissions/forms/${formId}?${query}`);
+    const results = response?.results || [];
+    out.push(...results);
+
+    after = response?.paging?.next?.after || null;
+    if (!after || !results.length) break;
+  }
+
+  return out;
 }
 
 /** Resets the cached token. Only needed in tests. */

@@ -67,6 +67,50 @@ const COMMANDS = {
     },
   },
 
+  "tablet claim": {
+    summary: "Pull booth tablet sign-ups for a show, by its linked form and dates.",
+    options: {
+      brand: { type: "string" },
+      show: { type: "string" },
+      buffer: { type: "string" },
+      commit: { type: "boolean", default: false },
+      "consent-text": { type: "string", default: "" },
+    },
+    async run({ values }) {
+      require_(values, ["brand", "show"]);
+      const tablet = await import("../src/tablet.js");
+      const show = registry.loadShows().find((s) => s.id === values.show);
+      if (!show) throw new Error(`No show "${values.show}".`);
+
+      const result = await tablet.claimTabletContacts({
+        brand: values.brand,
+        show,
+        bufferDays: values.buffer ? Number(values.buffer) : undefined,
+        commit: values.commit,
+        consentTextId: values["consent-text"],
+      });
+
+      const s = result.summary;
+      console.log(`\n  ${s.showName} — booth tablet`);
+      console.log(`  window              ${s.window.from.slice(0, 10)} → ${s.window.to.slice(0, 10)}  (±${s.window.bufferDays}d)`);
+      for (const form of s.perForm) {
+        console.log(`  form ${form.formId}`);
+        console.log(`    ${num(form.inRange)} of ${num(form.seen)} submissions fall inside the window`);
+      }
+      console.log(`  contacts            ${num(s.contacts)}`);
+      console.log(`  merged              ${num(s.mergedWithinBatch)}`);
+      console.log(`  rejected            ${num(s.rejected)}`);
+      console.log(`  outside the window  ${num(s.submissionsOutsideWindow)}  (left alone)`);
+
+      if (!values.commit) {
+        console.log("\nNothing was written. Re-run with --commit.\n");
+      } else {
+        console.log("\nClaimed. Refresh your audiences: tsf audience refresh --all\n");
+        writeReport();
+      }
+    },
+  },
+
   "campaign types": {
     summary: "List the campaign recipes you can build for a show.",
     async run() {
