@@ -48,16 +48,19 @@
 
       <ol class="steps">
         <li class="step" data-step="1">
-          <div class="step-head"><span class="step-n">1</span> Choose the file</div>
+          <div class="step-head"><span class="step-n">1</span> Drop the files</div>
           <div class="step-body">
             <label class="drop" id="drop">
-              <input type="file" id="file-input" accept=".csv,.txt,text/csv" hidden>
+              <input type="file" id="file-input" multiple
+                     accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls" hidden>
               <div class="drop-inner">
-                <div class="drop-title">Drop a CSV here</div>
-                <div class="drop-sub">or click to choose · roster or tablet export</div>
+                <div class="drop-title">Drop files here</div>
+                <div class="drop-sub">
+                  Excel or CSV · several at once · junk rows above the header are skipped
+                </div>
               </div>
             </label>
-            <div class="file-chip" id="file-chip" hidden></div>
+            <div id="file-list"></div>
           </div>
         </li>
 
@@ -102,11 +105,15 @@
         </li>
 
         <li class="step" data-step="3">
-          <div class="step-head"><span class="step-n">3</span> Check the columns</div>
+          <div class="step-head">
+            <span class="step-n">3</span> Check the columns
+            <span class="step-aside" id="mapping-for"></span>
+          </div>
           <div class="step-body">
+            <div class="file-tabs" id="file-tabs"></div>
             <div class="table-scroll">
               <table class="grid compact" id="mapping-table">
-                <thead><tr><th>Field</th><th>Column in your file</th><th>Sample value</th></tr></thead>
+                <thead><tr><th>Field</th><th>Column in this file</th><th>Sample value</th></tr></thead>
                 <tbody></tbody>
               </table>
             </div>
@@ -174,6 +181,9 @@
 
   <!-- ================= SHOWS ================= -->
   <section class="view" data-view="shows" hidden>
+    <p class="hint" style="margin:0 0 14px">
+      What each show has received, and what is still missing.
+    </p>
     <div id="show-cards"></div>
   </section>
 

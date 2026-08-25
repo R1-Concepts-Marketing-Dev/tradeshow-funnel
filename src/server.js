@@ -123,16 +123,113 @@ const ROUTES = {
     return result;
   },
 
-  /** Parses an uploaded CSV and guesses the column mapping. No writes. */
+  /**
+   * Inspects one or more uploaded files: finds the header row, picks the right
+   * sheet, and guesses the column mapping. Reads only, writes nothing.
+   *
+   * Files arrive base64-encoded because a spreadsheet is binary and JSON is
+   * not — cheaper than adding a multipart parser for two fields.
+   */
   "POST /api/upload/inspect": (body) => {
-    const { headers, rows } = ingest.parseCsv(body.text || "");
+    const files = body.files || [{ filename: body.filename, base64: body.base64 }];
+
     return {
-      filename: body.filename || "upload.csv",
-      headers,
-      rowCount: rows.length,
-      mapping: ingest.guessMapping(headers, body.mapping),
-      sample: rows.slice(0, 5),
       fields: Object.keys(ingest.COLUMN_GUESSES),
+      files: files.map((file) => {
+        const name = file.filename || "upload.csv";
+        try {
+          const table = ingest.readTable(Buffer.from(file.base64 || "", "base64"), name);
+          return {
+            filename: name,
+            ok: true,
+            headers: table.headers,
+            rowCount: table.rows.length,
+            sheetName: table.sheetName,
+            sheets: table.sheets,
+            notes: table.notes,
+            mapping: ingest.guessMapping(table.headers, file.mapping),
+            sample: table.rows.slice(0, 5),
+            // A guess at what this file is, from its name. The operator can
+            // change it — this only saves a click on the common case.
+            guessedSource: guessSource(name),
+          };
+        } catch (error) {
+          return { filename: name, ok: false, error: error.message };
+        }
+      }),
+    };
+  },
+
+  /**
+   * Runs several files as one batch. Each keeps its own source and mapping;
+   * they share a brand and a show.
+   */
+  "POST /api/import/batch": async (body) => {
+    const results = [];
+
+    // The same person turns up in the roster AND the badge scan. Each file is
+    // deduped on its own, so without this the preview counts them twice — and
+    // a preview whose numbers are wrong is worse than no preview. The commit
+    // was always correct (the upsert key collapses them); this makes the
+    // number you are shown match what actually happens.
+    const seenKeys = new Set();
+    let acrossFiles = 0;
+
+    for (const file of body.files || []) {
+      try {
+        const result = await ingest.ingestFile({
+          data: Buffer.from(file.base64 || "", "base64"),
+          filename: file.filename,
+          brand: body.brand,
+          showId: body.showId,
+          source: file.source,
+          mapping: file.mapping,
+          consentTextId: body.consentTextId || "",
+          commit: Boolean(body.commit),
+        });
+        let duplicatesHere = 0;
+        for (const entry of result.toWrite) {
+          if (seenKeys.has(entry.id)) duplicatesHere++;
+          else seenKeys.add(entry.id);
+        }
+        acrossFiles += duplicatesHere;
+
+        results.push({
+          filename: file.filename,
+          ok: true,
+          summary: { ...result.summary, duplicatesFromEarlierFiles: duplicatesHere },
+          rejects: result.rejects.slice(0, 50),
+          rejectCount: result.rejects.length,
+          review: result.review.slice(0, 20).map((item) => ({
+            email: item.contact.email || item.contact.phone,
+            reason: item.reason,
+          })),
+        });
+      } catch (error) {
+        // One bad file must not stop the rest of the batch.
+        results.push({ filename: file.filename, ok: false, error: error.message });
+      }
+    }
+
+    if (body.commit) writeReport();
+
+    const done = results.filter((r) => r.ok);
+    const rawContacts = done.reduce((n, r) => n + r.summary.contacts, 0);
+
+    return {
+      results,
+      totals: {
+        files: results.length,
+        failed: results.length - done.length,
+        rowsRead: done.reduce((n, r) => n + r.summary.rowsRead, 0),
+        // Unique people, not the sum of the per-file counts.
+        contacts: seenKeys.size,
+        duplicatesAcrossFiles: acrossFiles,
+        created: Math.max(0, done.reduce((n, r) => n + r.summary.created, 0) - acrossFiles),
+        updated: done.reduce((n, r) => n + r.summary.updated, 0),
+        rejected: done.reduce((n, r) => n + r.summary.rejected, 0),
+        committed: Boolean(body.commit),
+      },
     };
   },
 
@@ -303,6 +400,19 @@ const ROUTES = {
     return { audience: registry.loadAudience(body.id) };
   },
 };
+
+/**
+ * Guesses what a file is from its name. Saves a click on the common case and
+ * is never trusted — the operator sees and can change it.
+ */
+function guessSource(filename) {
+  const name = filename.toLowerCase();
+  if (/badge|scan|retrieval|lead.?retrieval/.test(name)) return "badge_scan";
+  if (/tablet|booth|kiosk|signup|sign.?up/.test(name)) return "booth_tablet";
+  if (/post|after|final/.test(name)) return "roster_post";
+  if (/pre|advance|early|registrant/.test(name)) return "roster_pre";
+  return "roster_pre";
+}
 
 /** Attaches the platform-floor check so the UI can show it without recomputing. */
 function withReadiness(audience) {

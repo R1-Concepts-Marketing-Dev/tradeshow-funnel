@@ -243,13 +243,61 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
 .drop-title { font-weight: 640; font-size: 14.5px; }
 .drop-sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 
-.file-chip {
-  margin-top: 12px; display: flex; align-items: center; gap: 10px;
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
-  padding: 9px 13px; font-size: 13px;
+/* One row per dropped file. A show usually arrives as several files, so they
+   are a list rather than a single slot, and each keeps its own source. */
+#file-list { margin-top: 12px; display: grid; gap: 8px; }
+.file-row {
+  display: grid; grid-template-columns: 1fr 230px auto; gap: 14px; align-items: start;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm); padding: 11px 13px;
 }
-.file-chip .name { font-weight: 620; }
-.file-chip .meta { color: var(--muted); font-family: var(--mono); font-size: 11.5px; }
+.file-row.is-warn { border-left-color: var(--warn); }
+.file-row.is-bad  { border-left-color: var(--bad); grid-template-columns: 1fr auto; }
+.file-main { min-width: 0; }
+.file-name { font-weight: 620; font-size: 13.5px; word-break: break-all; }
+.file-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+.file-note { font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+.file-note.is-warn { color: var(--warn); }
+.file-source label {
+  display: block; font-family: var(--mono); font-size: 9px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 4px;
+}
+.file-source select {
+  width: 100%; padding: 6px 8px; font-size: 13px;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface);
+}
+.file-src-note { font-size: 11px; color: var(--muted); margin: 5px 0 0; line-height: 1.35; }
+
+/* Step 3 gets a tab per file once there is more than one. */
+.file-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+.file-tab {
+  border: 1px solid var(--line-2); background: var(--surface);
+  padding: 6px 12px; border-radius: var(--r-sm); font-size: 12.5px; font-weight: 600;
+  color: var(--muted); max-width: 260px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.file-tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.file-tab.bad:not(.on) { border-color: var(--warn); color: var(--warn); }
+.step-aside { font-family: var(--mono); font-size: 11px; color: var(--muted-2); font-weight: 400; }
+
+.bad-row td { background: var(--bad-wash); }
+.bad-num { color: var(--bad); font-weight: 600; }
+
+/* What a show has already received. */
+.intake { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.intake-item {
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  padding: 8px 12px; min-width: 132px;
+}
+.intake-item.got { border-color: var(--good); background: var(--good-wash); }
+.intake-item .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted-2);
+}
+.intake-item.got .k { color: var(--good); }
+.intake-item .v { font-size: 15px; font-weight: 660; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.intake-item .s { font-size: 11px; color: var(--muted); }
 
 /* ---------- new show, created inline from the upload form ---------- */
 .new-show {
@@ -405,4 +453,8 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
   .brandmark .sub { display: none; }
   .kv { grid-template-columns: 1fr; gap: 1px 0; }
   .kv dt { margin-top: 7px; }
+  /* The three-column file row does not fit a phone — stack it. */
+  .file-row, .file-row.is-bad { grid-template-columns: 1fr; gap: 10px; }
+  .file-row .btn { justify-self: start; }
+  .file-tab { max-width: 100%; }
 }

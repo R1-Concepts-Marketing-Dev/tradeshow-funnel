@@ -27,12 +27,8 @@ const state = {
   brandFilter: null, // null = all brands
 
   upload: {
-    filename: null,
-    text: null,
-    headers: [],
-    rowCount: 0,
-    mapping: {},
-    sample: [],
+    files: [],         // one entry per dropped file, each with its own mapping
+    activeFile: 0,     // which file step 3 is showing
     fields: [],
     preview: null,
     showId: null,      // resolved once the show is created or matched
@@ -402,14 +398,22 @@ function geoSpecText(spec) {
 }
 
 // ---------------------------------------------------------------------------
-// Upload view
+// Upload view — several files at once, each with its own source and mapping
 // ---------------------------------------------------------------------------
 
+const SOURCE_LABELS = {
+  booth_tablet: "Booth tablet",
+  badge_scan: "Badge scan",
+  roster_pre: "Roster — pre-show",
+  roster_post: "Roster — post-show",
+  referral: "Referral",
+};
+
 const SOURCE_NOTES = {
-  booth_tablet: "Someone typed their own details at your booth. Consent is recorded as express opt-in.",
+  booth_tablet: "They typed their own details at your booth. Recorded as express opt-in.",
   badge_scan: "They handed you their badge to scan. Highest intent of any source.",
-  roster_pre: "The organizer's list, before the show. The only input that exists early enough for pre-show ads.",
-  roster_post: "The organizer's list, after the show.",
+  roster_pre: "The organizer's list before the show. The only input that exists early enough for pre-show ads.",
+  roster_post: "The organizer's list after the show.",
   referral: "Passed to you by someone else.",
 };
 
@@ -424,11 +428,15 @@ function matchTypedShow() {
   return { typed, show: show || null };
 }
 
+/** The files that are readable and therefore worth importing. */
+function usableFiles() {
+  return state.upload.files.filter((file) => file.ok);
+}
+
 function renderUpload() {
   const upload = state.upload;
 
   fillSelect($("#up-brand"), state.brands.map((b) => ({ value: b.id, label: b.name })), "Choose…");
-  fillSelect($("#up-source"), state.sources.map((s) => ({ value: s, label: s })));
 
   // The show field is a free-text box with suggestions, not a dropdown — you
   // should never have to leave this screen to add a show.
@@ -445,48 +453,125 @@ function renderUpload() {
     : "Type any name. If it is new, you will be asked for the dates here.";
 
   if (state.brandFilter) $("#up-brand").value = state.brandFilter;
-  $("#source-note").textContent = SOURCE_NOTES[$("#up-source").value] || "";
 
-  // File chip
-  const chip = $("#file-chip");
-  chip.hidden = !upload.filename;
-  if (upload.filename) {
-    chip.innerHTML = `<span class="name">${esc(upload.filename)}</span>
-      <span class="meta">${fmt(upload.rowCount)} rows · ${upload.headers.length} columns</span>`;
-  }
-  $('[data-step="1"]').classList.toggle("is-done", Boolean(upload.filename));
+  renderFileList();
+  renderFileTabs();
+  renderMapping();
 
-  // Mapping table
-  const body = $("#mapping-table tbody");
-  if (!upload.headers.length) {
-    body.innerHTML = `<tr><td colspan="3" class="hint">Choose a file first.</td></tr>`;
-  } else {
-    body.innerHTML = upload.fields
-      .map((field) => {
-        const selected = upload.mapping[field] || "";
-        const sample = selected ? upload.sample.map((row) => row[selected]).find(Boolean) : "";
-        const required = field === "email" || field === "phone";
-        return `<tr>
-          <td><b>${esc(field)}</b>${required ? ' <span class="hint">(one of these two is required)</span>' : ""}</td>
-          <td><select data-field="${esc(field)}" class="map-select">
-            <option value="">— not mapped —</option>
-            ${upload.headers
-              .map((h) => `<option value="${esc(h)}" ${h === selected ? "selected" : ""}>${esc(h)}</option>`)
+  const newShowOk = !isNew || ($("#ns-start").value && $("#ns-end").value);
+  const ready = Boolean(usableFiles().length && $("#up-brand").value && typed && newShowOk);
+
+  $("#btn-preview").disabled = !ready;
+  $("#btn-commit").disabled = !upload.preview || upload.preview.totals.committed;
+  $('[data-step="1"]').classList.toggle("is-done", usableFiles().length > 0);
+  $('[data-step="2"]').classList.toggle("is-done", ready);
+  $('[data-step="3"]').classList.toggle(
+    "is-done",
+    usableFiles().length > 0 && usableFiles().every((f) => f.mapping.email || f.mapping.phone)
+  );
+}
+
+/** One row per dropped file: what we read, and what kind of list it is. */
+function renderFileList() {
+  const files = state.upload.files;
+  const host = $("#file-list");
+
+  if (!files.length) { host.innerHTML = ""; return; }
+
+  host.innerHTML = files
+    .map((file, index) => {
+      if (!file.ok) {
+        return `<div class="file-row is-bad">
+          <div class="file-main">
+            <div class="file-name">${esc(file.filename)}</div>
+            <div class="file-meta">Could not read this — ${esc(file.error || "unknown format")}</div>
+          </div>
+          <button class="btn btn-sm file-drop-x" data-i="${index}">Remove</button>
+        </div>`;
+      }
+
+      const noMap = !file.mapping.email && !file.mapping.phone;
+      return `<div class="file-row ${noMap ? "is-warn" : ""}">
+        <div class="file-main">
+          <div class="file-name">${esc(file.filename)}</div>
+          <div class="file-meta">
+            <span class="num">${fmt(file.rowCount)}</span> rows ·
+            ${file.headers.length} columns
+            ${file.sheetName ? ` · sheet “${esc(file.sheetName)}”` : ""}
+          </div>
+          ${
+            file.notes?.length
+              ? `<div class="file-note">${file.notes.map(esc).join(" ")}</div>`
+              : ""
+          }
+          ${noMap ? `<div class="file-note is-warn">No email or phone column found — map one at step 3.</div>` : ""}
+        </div>
+        <div class="file-source">
+          <label>What is it?</label>
+          <select class="file-src" data-i="${index}">
+            ${state.sources
+              .map((s) => `<option value="${esc(s)}" ${s === file.source ? "selected" : ""}>${esc(SOURCE_LABELS[s] || s)}</option>`)
               .join("")}
-          </select></td>
-          <td class="hint">${esc(sample || "")}</td>
-        </tr>`;
+          </select>
+          <p class="file-src-note">${esc(SOURCE_NOTES[file.source] || "")}</p>
+        </div>
+        <button class="btn btn-sm file-drop-x" data-i="${index}">Remove</button>
+      </div>`;
+    })
+    .join("");
+}
+
+/** Tabs across the top of step 3, one per readable file. */
+function renderFileTabs() {
+  const files = usableFiles();
+  const host = $("#file-tabs");
+
+  if (files.length < 2) {
+    host.innerHTML = "";
+    host.hidden = true;
+  } else {
+    host.hidden = false;
+    host.innerHTML = files
+      .map((file) => {
+        const index = state.upload.files.indexOf(file);
+        const bad = !file.mapping.email && !file.mapping.phone;
+        return `<button class="file-tab ${index === state.upload.activeFile ? "on" : ""} ${bad ? "bad" : ""}"
+                        data-i="${index}">${esc(file.filename)}</button>`;
       })
       .join("");
   }
 
-  // A new show needs dates before it can be created.
-  const newShowOk = !isNew || ($("#ns-start").value && $("#ns-end").value);
-  const ready = Boolean(upload.text && $("#up-brand").value && typed && newShowOk);
-  $("#btn-preview").disabled = !ready;
-  $("#btn-commit").disabled = !upload.preview || upload.preview.summary.committed;
-  $('[data-step="2"]').classList.toggle("is-done", ready);
-  $('[data-step="3"]').classList.toggle("is-done", Boolean(upload.mapping.email || upload.mapping.phone));
+  const active = state.upload.files[state.upload.activeFile];
+  $("#mapping-for").textContent = active?.ok ? active.filename : "";
+}
+
+/** The column mapping table, for whichever file is selected. */
+function renderMapping() {
+  const body = $("#mapping-table tbody");
+  const file = state.upload.files[state.upload.activeFile];
+
+  if (!file || !file.ok) {
+    body.innerHTML = `<tr><td colspan="3" class="hint">Drop a file first.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = state.upload.fields
+    .map((field) => {
+      const selected = file.mapping[field] || "";
+      const sample = selected ? file.sample.map((row) => row[selected]).find(Boolean) : "";
+      const required = field === "email" || field === "phone";
+      return `<tr>
+        <td><b>${esc(field)}</b>${required ? ' <span class="hint">(one of these two is required)</span>' : ""}</td>
+        <td><select data-field="${esc(field)}" class="map-select">
+          <option value="">— not mapped —</option>
+          ${file.headers
+            .map((h) => `<option value="${esc(h)}" ${h === selected ? "selected" : ""}>${esc(h)}</option>`)
+            .join("")}
+        </select></td>
+        <td class="hint">${esc(sample || "")}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 function fillSelect(select, options, placeholder) {
@@ -497,48 +582,86 @@ function fillSelect(select, options, placeholder) {
   if (current) select.value = current;
 }
 
+/** Results for a whole batch: totals first, then a row per file. */
 function renderPreview(result) {
-  const s = result.summary;
+  const t = result.totals;
   const out = $("#preview-out");
 
-  const banner = s.committed
-    ? `<div class="notice good"><b>Committed.</b> ${fmt(s.created)} contacts created and ${fmt(
-        s.updated
-      )} updated in HubSpot. Refresh your audience sizes to see the effect.</div>`
+  const banner = t.committed
+    ? `<div class="notice good"><b>Committed.</b> ${fmt(t.created)} contacts created and ${fmt(
+        t.updated
+      )} updated in HubSpot across ${fmt(t.files)} file(s).</div>`
     : `<div class="notice info"><b>Nothing has been written.</b> Check these numbers, then press Commit.</div>`;
+
+  const perFile = result.results
+    .map((r) => {
+      if (!r.ok) {
+        return `<tr class="bad-row">
+          <td><b>${esc(r.filename)}</b></td>
+          <td colspan="5">${esc(r.error)}</td>
+        </tr>`;
+      }
+      const s = r.summary;
+      return `<tr>
+        <td>
+          <b>${esc(r.filename)}</b>
+          <div class="hint">${esc(SOURCE_LABELS[s.source] || s.source)}${
+            s.sheetName ? ` · ${esc(s.sheetName)}` : ""
+          }</div>
+        </td>
+        <td class="right num">${fmt(s.rowsRead)}</td>
+        <td class="right num">${fmt(s.created)}</td>
+        <td class="right num">${fmt(s.updated)}</td>
+        <td class="right num">${fmt(s.mergedWithinFile)}</td>
+        <td class="right num ${s.rejected ? "bad-num" : ""}">${fmt(s.rejected)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const allRejects = result.results.filter((r) => r.ok).flatMap((r) =>
+    r.rejects.map((x) => ({ ...x, file: r.filename }))
+  );
+  const rejectTotal = result.results.filter((r) => r.ok).reduce((n, r) => n + r.rejectCount, 0);
 
   out.innerHTML = `
     ${banner}
     <div class="result-grid">
-      ${resultTile("Rows read", fmt(s.rowsRead), "")}
-      ${resultTile("Contacts", fmt(s.contacts), "good")}
-      ${resultTile("New", fmt(s.created), "")}
-      ${resultTile("Updates", fmt(s.updated), "")}
-      ${resultTile("Merged", fmt(s.mergedWithinFile), s.mergedWithinFile ? "warn" : "")}
-      ${resultTile("Rejected", fmt(s.rejected), s.rejected ? "bad" : "")}
+      ${resultTile("Files", fmt(t.files), t.failed ? "bad" : "")}
+      ${resultTile("Rows read", fmt(t.rowsRead), "")}
+      ${resultTile("People", fmt(t.contacts), "good")}
+      ${resultTile("New", fmt(t.created), "")}
+      ${resultTile("Updates", fmt(t.updated), "")}
+      ${resultTile("In 2+ files", fmt(t.duplicatesAcrossFiles || 0), t.duplicatesAcrossFiles ? "warn" : "")}
+      ${resultTile("Rejected", fmt(t.rejected), t.rejected ? "bad" : "")}
     </div>
+
+    <div class="table-scroll">
+      <table class="grid compact">
+        <thead><tr>
+          <th>File</th><th class="right">Rows</th><th class="right">New</th>
+          <th class="right">Updated</th><th class="right">Merged</th><th class="right">Rejected</th>
+        </tr></thead>
+        <tbody>${perFile}</tbody>
+      </table>
+    </div>
+
     ${
-      result.rejectCount
-        ? `<div class="notice bad"><b>${fmt(result.rejectCount)} row(s) rejected.</b>
-             <ul>${result.rejects
-               .slice(0, 8)
-               .map((r) => `<li>row ${r.rowNumber}: ${esc(r.reason)}</li>`)
-               .join("")}</ul>
-             ${result.rejectCount > 8 ? `<p class="hint">…and ${fmt(result.rejectCount - 8)} more.</p>` : ""}
+      t.duplicatesAcrossFiles
+        ? `<div class="notice info" style="margin-top:14px">
+             <b>${fmt(t.duplicatesAcrossFiles)} ${t.duplicatesAcrossFiles === 1 ? "person appears" : "people appear"} in more than one of these files.</b>
+             Counted once. Someone on the pre-show roster who then scanned their badge is one
+             contact with both sources on it — which is the strongest signal a show produces.
            </div>`
         : ""
     }
     ${
-      s.committed
-        ? ""
-        : ""
-    }
-    ${
-      result.review.length
-        ? `<div class="notice warn"><b>${result.review.length} possible duplicate(s) need a human.</b>
-             These matched on name and company only, which is right often enough to be useful and
-             wrong often enough that nothing is merged automatically.
-             <ul>${result.review.slice(0, 8).map((r) => `<li>${esc(r.email)}</li>`).join("")}</ul>
+      rejectTotal
+        ? `<div class="notice bad" style="margin-top:14px"><b>${fmt(rejectTotal)} row(s) rejected.</b>
+             <ul>${allRejects
+               .slice(0, 8)
+               .map((r) => `<li>${esc(r.file)} row ${r.rowNumber}: ${esc(r.reason)}</li>`)
+               .join("")}</ul>
+             ${rejectTotal > 8 ? `<p class="hint">…and ${fmt(rejectTotal - 8)} more.</p>` : ""}
            </div>`
         : ""
     }`;
@@ -645,9 +768,44 @@ function renderShows() {
     : `<div class="panel"><p class="empty">No shows yet. Add one above.</p></div>`;
 }
 
+/**
+ * What a show has actually received, from the import log. This is the
+ * "organize" half — at a glance, which lists are in and which are missing.
+ */
+function intakeFor(showId) {
+  const imports = state.history.filter(
+    (e) => e.action === "import.committed" && e.showId === showId
+  );
+  const bySource = {};
+  for (const entry of imports) {
+    const s = (bySource[entry.source] ||= { files: 0, created: 0, updated: 0, rejected: 0 });
+    s.files += 1;
+    s.created += entry.created || 0;
+    s.updated += entry.updated || 0;
+    s.rejected += entry.rejected || 0;
+  }
+  return bySource;
+}
+
 function showCard(show) {
   const brandChips = (show.brands || []).map(brandChip).join(" ");
   const audienceCount = state.audiences.filter((a) => a.shows.includes(show.id)).length;
+  const intake = intakeFor(show.id);
+  const SOURCE_ORDER = ["roster_pre", "booth_tablet", "badge_scan", "roster_post"];
+  const intakeBlock = `<div class="intake">
+    ${SOURCE_ORDER.map((src) => {
+      const got = intake[src];
+      return `<div class="intake-item ${got ? "got" : ""}">
+        <div class="k">${esc(SOURCE_LABELS[src] || src)}</div>
+        <div class="v">${got ? fmt(got.created + got.updated) : "—"}</div>
+        <div class="s">${
+          got
+            ? `${got.files} file${got.files === 1 ? "" : "s"}${got.rejected ? ` · ${fmt(got.rejected)} rejected` : ""}`
+            : "not loaded"
+        }</div>
+      </div>`;
+    }).join("")}
+  </div>`;
 
   const venueBlock = show.venue
     ? `<div class="venue-known">
@@ -685,6 +843,7 @@ function showCard(show) {
     </div>
     <div class="body">
       ${show.notes ? `<div class="notice warn">${esc(show.notes)}</div>` : ""}
+      ${intakeBlock}
       ${venueBlock}
       <div class="actions">
         ${
@@ -830,6 +989,21 @@ document.addEventListener("click", async (event) => {
     });
   }
 
+  const fileTab = target.closest(".file-tab");
+  if (fileTab) {
+    state.upload.activeFile = Number(fileTab.dataset.i);
+    return renderUpload();
+  }
+
+  const dropX = target.closest(".file-drop-x");
+  if (dropX) {
+    state.upload.files.splice(Number(dropX.dataset.i), 1);
+    state.upload.activeFile = Math.max(0, Math.min(state.upload.activeFile, state.upload.files.length - 1));
+    state.upload.preview = null;
+    $("#preview-out").innerHTML = "";
+    return renderUpload();
+  }
+
   const row = target.closest("#audience-table tbody tr");
   if (row) return openDrawer(row.dataset.id);
 
@@ -905,16 +1079,25 @@ document.addEventListener("click", async (event) => {
       }
       state.upload.showId = ensured.show.id;
 
-      toast(commit ? "Writing to HubSpot…" : "Running preview…");
-      const result = await api("/api/import", {
-        text: state.upload.text,
-        filename: state.upload.filename,
+      const files = usableFiles();
+      toast(
+        commit
+          ? `Writing ${files.length} file${files.length === 1 ? "" : "s"} to HubSpot…`
+          : "Running preview…"
+      );
+
+      const result = await api("/api/import/batch", {
         brand: $("#up-brand").value,
         showId: ensured.show.id,
-        source: $("#up-source").value,
-        mapping: state.upload.mapping,
         commit,
+        files: files.map((file) => ({
+          filename: file.filename,
+          base64: file.base64,
+          source: file.source,
+          mapping: file.mapping,
+        })),
       });
+
       state.upload.preview = result;
       renderUpload();
       renderPreview(result);
@@ -987,14 +1170,22 @@ document.addEventListener("change", async (event) => {
   const target = event.target;
 
   if (target.matches(".map-select")) {
+    const file = state.upload.files[state.upload.activeFile];
+    if (!file) return;
     const field = target.dataset.field;
-    if (target.value) state.upload.mapping[field] = target.value;
-    else delete state.upload.mapping[field];
+    if (target.value) file.mapping[field] = target.value;
+    else delete file.mapping[field];
     state.upload.preview = null;
     return renderUpload();
   }
 
-  if (target.matches("#up-brand, #up-show, #up-source, #ns-start, #ns-end, #ns-city")) {
+  if (target.matches(".file-src")) {
+    state.upload.files[Number(target.dataset.i)].source = target.value;
+    state.upload.preview = null;
+    return renderUpload();
+  }
+
+  if (target.matches("#up-brand, #up-show, #ns-start, #ns-end, #ns-city")) {
     state.upload.preview = null;
     return renderUpload();
   }
@@ -1008,8 +1199,8 @@ document.addEventListener("change", async (event) => {
   }
 
   if (target.matches("#file-input")) {
-    const file = target.files[0];
-    if (file) await acceptFile(file);
+    if (target.files.length) await acceptFiles(target.files);
+    target.value = ""; // so re-picking the same file still fires
   }
 });
 
@@ -1040,18 +1231,64 @@ const drop = () => $("#drop");
   })
 );
 document.addEventListener("drop", async (event) => {
-  const file = event.dataTransfer?.files?.[0];
-  if (file && state.view === "upload") await acceptFile(file);
+  const files = event.dataTransfer?.files;
+  if (files?.length && state.view === "upload") await acceptFiles(files);
 });
 
-async function acceptFile(file) {
-  const text = await file.text();
+/** Browsers hand us bytes; the API wants base64 because JSON cannot hold binary. */
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const CHUNK = 0x8000; // avoids blowing the argument limit on a big file
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/** Reads dropped files, asks the server what is in them, and adds them to the list. */
+async function acceptFiles(fileList) {
+  const incoming = [...fileList];
+  if (!incoming.length) return;
+
   await run(async () => {
-    const inspected = await api("/api/upload/inspect", { text, filename: file.name });
-    Object.assign(state.upload, inspected, { text, preview: null });
+    toast(`Reading ${incoming.length} file${incoming.length === 1 ? "" : "s"}…`);
+
+    const payload = await Promise.all(
+      incoming.map(async (file) => ({
+        filename: file.name,
+        base64: toBase64(await file.arrayBuffer()),
+      }))
+    );
+
+    const inspected = await api("/api/upload/inspect", { files: payload });
+    state.upload.fields = inspected.fields;
+
+    inspected.files.forEach((info, index) => {
+      state.upload.files.push({
+        ...info,
+        base64: payload[index].base64,
+        source: info.guessedSource || "roster_pre",
+      });
+    });
+
+    // Show step 3 for the first readable file we just added.
+    const firstNew = state.upload.files.findIndex((f) => f.ok && !f.seen);
+    state.upload.activeFile = firstNew === -1 ? 0 : firstNew;
+    state.upload.files.forEach((f) => (f.seen = true));
+    state.upload.preview = null;
+
     renderUpload();
     $("#preview-out").innerHTML = "";
-    toast(`Read ${fmt(inspected.rowCount)} rows`, "good");
+
+    const good = inspected.files.filter((f) => f.ok);
+    const rows = good.reduce((n, f) => n + f.rowCount, 0);
+    const bad = inspected.files.length - good.length;
+    toast(
+      `Read ${fmt(rows)} rows from ${good.length} file${good.length === 1 ? "" : "s"}` +
+        (bad ? ` · ${bad} could not be read` : ""),
+      bad ? "bad" : "good"
+    );
   });
 }
 

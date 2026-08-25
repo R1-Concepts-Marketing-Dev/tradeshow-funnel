@@ -33,11 +33,13 @@ Or add `bin/tsf.js` to your PATH and just type `tsf`.
 
 ## The upload flow
 
-1. **Drop the CSV.** Columns are guessed from the header row.
+1. **Drop the files.** Excel or CSV, several at once. A show usually arrives as
+   three or four files — pre-show roster, badge scans, tablet export — and they
+   go in as one batch. Each keeps its own source and its own column mapping.
 2. **Brand and show.** The show field is a text box, not a dropdown — type any
    name. If it does not exist yet, the dates appear right there and the show is
    created when you run the preview. You never leave this screen.
-3. **Check the mapping.** Fix anything the guess got wrong.
+3. **Check the mapping.** One tab per file. Fix anything the guess got wrong.
 4. **Preview, then commit.** Nothing reaches HubSpot until Commit. The preview
    shows created / updated / merged / rejected, with the reason for every
    rejected row.
@@ -70,6 +72,25 @@ tsf campaign types
 tsf campaign create --brand dfc --show sema-2026 --all
 tsf campaign create --brand dfc --show sema-2026 --types pre-show,booth-traffic --commit
 ```
+
+---
+
+## What it does with a real organizer file
+
+Organizer exports are not clean CSV, so the reader deals with the mess rather
+than making you do it:
+
+- **Excel and CSV.** `.xlsx`, `.xlsm`, `.xls`, `.csv`, `.tsv`.
+- **Junk above the header.** A logo row, a "Report generated…" line and a blank
+  row get skipped — it finds the real header row and says how many it skipped.
+- **Multi-sheet workbooks.** Picks the sheet with the contacts in it, not
+  "Summary" or "Legend", and tells you which one it read.
+- **Header names it has never seen.** "Badge Email", "Given Name", "Cell" and
+  "Organization" all map correctly, while "Email Opt Out" is deliberately left
+  alone.
+- **The same person in two files.** Someone on the pre-show roster who also
+  scanned their badge is counted once, and flagged — that overlap is the
+  strongest signal a show produces.
 
 ---
 
@@ -182,6 +203,7 @@ opens with a comment saying what it does and when you would edit it.
 | `src/registry.js` | **The core.** Audience records and the history log. |
 | `src/audiences.js` | Creating audiences; platform floors; readiness. |
 | `src/geo.js` | Venue lookup, radius rings, run windows. |
+| `src/readfile.js` | Reads .xlsx and .csv, finds the header row, picks the sheet. |
 | `src/campaigns.js` | The campaign recipes. Add a new one here — it is all data. |
 | `src/ingest.js` | CSV in, contacts out. |
 | `src/normalize.js` | Cleaning emails, phones, names. Pure functions. |

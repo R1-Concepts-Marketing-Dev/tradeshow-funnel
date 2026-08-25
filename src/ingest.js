@@ -13,7 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { parse } from "csv-parse/sync";
+import { readTable, readTableFile } from "./readfile.js";
 import * as hubspot from "./hubspot.js";
 import { normalizeRow } from "./normalize.js";
 import { groupContacts, mergeGroup } from "./merge.js";
@@ -42,39 +42,81 @@ export const COLUMN_GUESSES = {
   website: ["website", "url", "web", "domain"],
 };
 
-/** Parses CSV text into { headers, rows }. Handles a UTF-8 BOM and quoted fields. */
-export function parseCsv(text) {
-  const rows = parse(String(text).replace(/^﻿/, ""), {
-    columns: true,
-    skip_empty_lines: true,
-    relax_column_count: true,
-    trim: true,
-  });
-  const headers = rows.length ? Object.keys(rows[0]) : [];
-  return { headers, rows };
-}
+// Reading files is its own problem — organizer exports are .xlsx with junk
+// rows above the header and four sheets. See src/readfile.js.
+export { readTable, readTableFile };
 
-/** Reads a CSV file off disk. The UI passes text instead — see ingestFile. */
-export function readCsv(file) {
-  return parseCsv(fs.readFileSync(file, "utf8"));
-}
+/**
+ * Distinctive words to look for when no header matches exactly. Organizers
+ * write "Badge Email", "Registrant Email", "Work Email" — all obviously the
+ * email column, none of them an exact match for anything.
+ */
+export const CORE_KEYWORDS = {
+  email: ["email", "e-mail"],
+  firstName: ["first", "given", "fname", "forename"],
+  lastName: ["last", "surname", "family", "lname"],
+  phone: ["phone", "mobile", "cell", "telephone"],
+  company: ["company", "organization", "organisation", "business", "shop", "employer", "firm"],
+  jobTitle: ["job title", "jobtitle", "position", "role"],
+  city: ["city", "town"],
+  state: ["state", "province"],
+  country: ["country"],
+  website: ["website", "domain"],
+};
+
+/**
+ * Headers that contain a keyword but are definitely not the field. "Email
+ * Opt Out" is not an email column, and mapping it would be worse than
+ * mapping nothing.
+ */
+const NEVER_MATCH = /opt.?out|opt.?in|consent|unsubscribe|subscrib|verified|is.?valid|preference|bounce|invalid/i;
 
 /**
  * Works out which column is which.
  *
+ * Two passes. Exact matches first, because they are certain. Then a keyword
+ * pass for the many real headers that are obviously right but not on any list.
+ * Skipping the second pass is how a file imports with no email addresses in it
+ * and nobody notices until the audience is empty.
+ *
  * @param {string[]} headers
  * @param {object} saved  a mapping the user confirmed before, from mappings.json
- * @returns {object} our field name -> the CSV header to read it from
+ * @returns {object} our field name -> the header to read it from
  */
 export function guessMapping(headers, saved = {}) {
   const mapping = { ...saved };
   const lowered = headers.map((header) => ({ header, key: header.toLowerCase().trim() }));
+  const taken = new Set(Object.values(mapping));
 
+  // Pass 1 — exact.
   for (const [field, candidates] of Object.entries(COLUMN_GUESSES)) {
     if (mapping[field]) continue;
-    const hit = lowered.find((column) => candidates.includes(column.key));
-    if (hit) mapping[field] = hit.header;
+    const hit = lowered.find((column) => candidates.includes(column.key) && !taken.has(column.header));
+    if (hit) {
+      mapping[field] = hit.header;
+      taken.add(hit.header);
+    }
   }
+
+  // Pass 2 — contains a distinctive word. Shortest header wins, on the theory
+  // that "Email" beats "Email Address Confirmed" for being the real one.
+  for (const [field, keywords] of Object.entries(CORE_KEYWORDS)) {
+    if (mapping[field]) continue;
+    const hits = lowered
+      .filter(
+        (column) =>
+          !taken.has(column.header) &&
+          !NEVER_MATCH.test(column.key) &&
+          keywords.some((word) => column.key.includes(word))
+      )
+      .sort((a, b) => a.key.length - b.key.length);
+
+    if (hits.length) {
+      mapping[field] = hits[0].header;
+      taken.add(hits[0].header);
+    }
+  }
+
   return mapping;
 }
 
@@ -122,7 +164,7 @@ export function dedupeKey(contact, brandId) {
  */
 export async function ingestFile({
   file,
-  text,
+  data,
   filename,
   brand: brandInput,
   showId,
@@ -143,11 +185,11 @@ export async function ingestFile({
     throw new Error(`Unknown show "${showId}". Add it first: tsf show add`);
   }
 
-  // The CLI passes a path; the web UI passes the file's text, because the
-  // browser has already read it and shipping bytes through a multipart parser
-  // would add a dependency for no benefit.
+  // The CLI passes a path; the web UI passes the bytes, because a spreadsheet
+  // is binary and the browser has already read it.
   const displayName = filename || (file ? path.basename(file) : "upload.csv");
-  const { headers, rows } = text !== undefined ? parseCsv(text) : readCsv(file);
+  const table = data !== undefined ? readTable(data, displayName) : readTableFile(file);
+  const { headers, rows } = table;
   const mapping = providedMapping || guessMapping(headers);
 
   if (!mapping.email && !mapping.phone) {
@@ -230,6 +272,8 @@ export async function ingestFile({
 
   const summary = {
     file: displayName,
+    sheetName: table.sheetName,
+    readNotes: table.notes,
     brand: brand.id,
     showId,
     source,

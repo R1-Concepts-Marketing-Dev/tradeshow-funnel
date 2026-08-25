@@ -264,3 +264,66 @@ is not an audience. Running it for a second show reports "already exists —
 reusing it", which is the correct outcome, not an error.
 
 Adding a recipe is data: append to `CAMPAIGN_TYPES`. No logic changes.
+
+---
+
+## Reading whatever the organizer sent
+
+Real exports are not clean CSV. They are `.xlsx` with a logo merged across the
+first three rows, a "Report generated 14/10/2026" line, a blank row, and *then*
+the headers — in a workbook whose other three sheets are Summary, Legend and
+Pivot.
+
+`src/readfile.js` deals with that so nothing downstream has to. It scores each
+of the first 25 rows on how much it looks like a header — short cells, mostly
+unique, not numeric, and crucially **containing no email address**, because a
+header row never does — and picks the best. Then it scores each sheet on
+whether it has an email column and how many rows it has, and reads the winner.
+
+It reports what it did (`summary.readNotes`) rather than doing it silently. An
+operator who can see "skipped 4 rows, read the Lead Detail sheet" can tell at a
+glance whether it guessed right.
+
+`raw: false` on the sheet read is deliberate — it keeps everything as strings so
+a phone number does not lose its leading zero to Excel's number coercion.
+
+---
+
+## Column guessing runs two passes, and the second one matters
+
+Pass one matches the header exactly against a list of known names. Pass two
+looks for a distinctive keyword inside the header.
+
+The second pass exists because of a bug found during the build: a badge-scan
+export used **"Badge Email"**, which matched nothing, so the file imported with
+no email addresses at all. The counts looked plausible and the audience was
+empty. That is the worst failure mode this tool has — wrong silently — and it
+is what `test/mapping.test.js` guards.
+
+The corresponding risk is over-matching, so `NEVER_MATCH` blocks any header
+containing opt-out, opt-in, consent, unsubscribe, bounce or verified. "Email
+Opt Out" is not the email column, and mapping it would be worse than leaving it
+unmapped. Where several headers match, the shortest wins — "Email" beats "Email
+Address Confirmed At".
+
+---
+
+## Several files are one batch
+
+A show arrives as three or four files: pre-show roster, badge retrieval export,
+tablet export, post-show roster. They share a brand and a show but not a source
+or a column layout, so the batch carries one brand and one show while each file
+keeps its own source and mapping.
+
+The source is guessed from the filename (`badge`, `tablet`, `pre`, `post`) and
+shown for the operator to correct. It is a time-saver, never a decision.
+
+**Cross-file deduplication is done at the batch level.** Each file is deduped on
+its own, so without it the preview double-counts someone who is on the roster
+*and* scanned their badge. The commit was always right — the upsert key
+collapses them — but the preview was not, and a preview whose numbers are wrong
+is worse than no preview. The overlap is surfaced rather than hidden, because a
+contact with both `roster_pre` and `badge_scan` on it is the highest-intent
+record a show produces.
+
+One bad file does not stop the batch; it is reported and the rest still run.

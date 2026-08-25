@@ -24,6 +24,16 @@ rather than a guess.
 `AUDIENCES.md` can be stale if someone changed data without running
 `tsf report`. If a question turns on exact numbers, read the JSON.
 
+## Reading files
+
+`src/readfile.js` handles what organizers actually send: Excel workbooks with
+junk rows above the header and several sheets. It reports which sheet it read
+and how many rows it skipped, in `summary.readNotes`.
+
+Column guessing is two passes — exact header match, then a keyword pass so
+"Badge Email" still maps. Anything matching opt-out / consent / unsubscribe is
+never mapped, because mapping it would be worse than mapping nothing.
+
 ## Brands come first
 
 Every audience belongs to **one** brand: `r1` (R1 Concepts) or `dfc` (Dynamic
