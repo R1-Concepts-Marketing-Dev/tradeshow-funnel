@@ -237,6 +237,8 @@ opens with a comment saying what it does and when you would edit it.
 | `src/campaigns.js` | The campaign recipes. Add a new one here — it is all data. |
 | `src/ingest.js` | CSV in, contacts out. |
 | `src/columnAI.js` | Asks Claude what the columns are, without sending the contacts. |
+| `src/auth.js` | Who is allowed in: Google sign-in, shared passphrase, or neither. |
+| `src/tunnel.js` | Puts the tool on a link other people can open. |
 | `src/normalize.js` | Cleaning emails, phones, names. Pure functions. |
 | `src/merge.js` | Duplicate matching and which value wins. |
 | `src/setup.js` | The HubSpot properties this tool needs. |

@@ -533,7 +533,12 @@ function withReadiness(audience) {
 // Plumbing
 // ---------------------------------------------------------------------------
 
-function readBody(request) {
+/**
+ * The bytes of a request body, as text.
+ *
+ * @param {number} limit  bytes to accept before giving up
+ */
+function readRawBody(request, limit = 64 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
@@ -541,24 +546,26 @@ function readBody(request) {
       size += chunk.length;
       // A roster of 100k rows is a few MB; 64 MB is a generous ceiling that
       // still stops a runaway upload from exhausting memory.
-      if (size > 64 * 1024 * 1024) {
+      if (size > limit) {
         reject(new Error("Upload too large (over 64 MB)."));
         request.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    request.on("end", () => {
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        reject(new Error("Request body was not valid JSON."));
-      }
-    });
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     request.on("error", reject);
   });
+}
+
+async function readBody(request) {
+  const raw = await readRawBody(request);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Request body was not valid JSON.");
+  }
 }
 
 function sendJson(response, status, payload) {
@@ -607,6 +614,10 @@ export function startServer(options = {}) {
     if (url.pathname === "/auth/login") return auth.startLogin(request, response);
     if (url.pathname === "/auth/callback") return auth.completeLogin(request, response, url);
     if (url.pathname === "/auth/logout") return auth.logout(response);
+    if (url.pathname === "/auth/passphrase" && request.method === "POST") {
+      const form = new URLSearchParams(await readRawBody(request, 4096));
+      return auth.submitPassphrase(request, response, form.get("passphrase"));
+    }
 
     // ---- everything else requires a session ----
     const user = auth.gate(request, response, url);

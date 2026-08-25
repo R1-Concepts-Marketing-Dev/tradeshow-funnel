@@ -336,6 +336,61 @@ a column is not.
 
 ---
 
+## A tunnel defeats the bind-time safety check, so there are two checks
+
+`assertSafeToBind()` refuses to listen on a public interface without a login.
+That was the whole security model, and a tunnel walks straight past it.
+
+`cloudflared` (and ngrok, and Tailscale) makes an **outbound** connection and
+forwards a public hostname to `127.0.0.1`. The bind stays local, the guard sees
+nothing wrong, and the tool is on the internet with `currentUser()` cheerfully
+returning `{ email: "local" }` to everyone who asks.
+
+Verified before the fix: a request with a spoofed `Host` header reached
+`POST /api/import/batch` and would have written to HubSpot.
+
+So there are now two independent checks:
+
+1. **Before the URL exists.** `tsf tunnel` runs `preflight()` and refuses to
+   start unless a gate is configured. Blockers stop it; warnings do not,
+   because refusing over a nuisance teaches people to route around the check.
+2. **On every request.** `gate()` calls `looksRemote()` and rejects anything
+   that arrives with a non-localhost `Host` or a proxy header
+   (`cf-connecting-ip`, `x-forwarded-for`) when no gate is set.
+
+The second one can be defeated deliberately — `cloudflared` will rewrite the
+Host header if you ask it to. That is fine. It exists to stop the accident that
+actually happens: someone tunnels the tool to show a colleague, forgets it has
+no login, and walks away.
+
+`test/remote.test.js` locks the parsing, including the bracketed IPv6 case
+(`[::1]:4477`) that a naive `split(":")[0]` gets wrong — that bug made the tool
+refuse its own loopback requests.
+
+---
+
+## A shared passphrase exists because free tunnels move
+
+Google sign-in is better in every way that matters: per-person, revocable,
+restricted to the Workspace domain, and it puts a real email in the history log.
+It is the right gate whenever the tool has a stable hostname.
+
+It cannot be used behind a free tunnel. Google will only redirect to URLs
+registered on the OAuth client in advance, and a Cloudflare quick tunnel hands
+out a new hostname on every start. Re-registering a redirect URI before every
+use is not a workflow anybody will follow.
+
+So `TSF_ACCESS_PASSPHRASE` is a second gate: one shared phrase, checked in
+constant time, issuing the same signed session cookie the Google flow issues.
+The session records `shared-link` rather than a name, because it genuinely does
+not know who typed it — inventing an actor in an append-only history log would
+be worse than admitting the gap.
+
+Google wins when both are set. `docs/SHARING.md` covers moving to a permanent
+hostname, which is the point at which the passphrase should be deleted.
+
+---
+
 ## Several files are one batch
 
 A show arrives as three or four files: pre-show roster, badge retrieval export,

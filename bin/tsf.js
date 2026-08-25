@@ -68,6 +68,87 @@ const COMMANDS = {
     },
   },
 
+  "tunnel": {
+    summary: "Put the tool on a URL others can open, from this machine, for free.",
+    options: { port: { type: "string", default: "4477" } },
+    async run({ values }) {
+      const port = Number(values.port);
+      const tunnel = await import("../src/tunnel.js");
+      const auth = await import("../src/auth.js");
+
+      // Everything that must be true BEFORE a public URL exists. A tunnel
+      // forwards to localhost, so nothing else in the stack can tell that the
+      // tool just became reachable from the internet.
+      const { blockers, warnings } = tunnel.preflight();
+      if (blockers.length) {
+        console.log("\n  Not opening a tunnel:\n");
+        for (const problem of blockers) console.log(`  !  ${problem}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      for (const warning of warnings) console.log(`\n  Note: ${warning}\n`);
+
+      const { startServer } = await import("../src/server.js");
+      await startServer({ port });
+      console.log(`
+  Serving on http://localhost:${port} — opening a tunnel…`);
+
+      const { url, child } = await tunnel.openQuickTunnel({ port });
+
+      const mode = auth.authMode();
+      console.log(`
+  ${"=".repeat(64)}
+
+    ${url}
+
+  ${"=".repeat(64)}
+
+  Send that link to whoever is uploading. They will be asked for ${
+    mode === "passphrase" ? "the passphrase" : `a ${loadConfigDomain()} Google account`
+  }.
+
+  This link lives as long as this window does. Close it, or let this PC
+  sleep, and the link stops working — which is the point. A new one is
+  handed out every time, so send the current link, not an old one.
+
+  Press Ctrl+C to close the tunnel.
+`);
+
+      // Take the tunnel down with the tool. This matters more than it looks:
+      // cloudflared forwards to a PORT, not to this process, so a stray one
+      // left running would happily expose whatever binds that port next.
+      //
+      // Every exit path we can actually observe is covered. A hard kill
+      // (taskkill /F, pulling the power) cannot be — no handler runs. If you
+      // suspect that happened, check for a leftover:
+      //   Get-Process cloudflared
+      let closed = false;
+      const shutDown = (code = 0) => {
+        if (closed) return;
+        closed = true;
+        child.kill();
+        process.exit(code);
+      };
+      process.on("SIGINT", () => shutDown(0));
+      process.on("SIGTERM", () => shutDown(0));
+      process.on("SIGHUP", () => shutDown(0));
+      process.on("exit", () => child.kill());
+      process.on("uncaughtException", (error) => {
+        console.error(`\n  The tool crashed, so the tunnel is closing too:\n  ${error.message}\n`);
+        shutDown(1);
+      });
+
+      // If cloudflared dies on its own, the link is gone — say so rather than
+      // sitting there looking like it still works.
+      child.on("exit", () => {
+        console.log("\n  The tunnel closed. The link no longer works.\n");
+        process.exit(1);
+      });
+
+      await new Promise(() => {});
+    },
+  },
+
   "imports": {
     summary: "List every import batch, newest first. Use the batch id to undo one.",
     async run() {
@@ -177,7 +258,21 @@ const COMMANDS = {
         console.log(`             masked value shapes are sent; contact details never leave.`);
       }
 
-      console.log(`  Sign-in    ${config.auth.googleClientId ? "Google configured" : "not configured — local use only, which is the default"}`);
+      const { authMode } = await import("../src/auth.js");
+      const gate = {
+        google: `Google, restricted to ${config.auth.allowedDomain}`,
+        passphrase: "shared passphrase — fine for a tunnel, see docs/SHARING.md",
+        none: "none — local use only, which is the default",
+      }[authMode()];
+      console.log(`  Sign-in    ${gate}`);
+
+      const { findCloudflared } = await import("../src/tunnel.js");
+      const cf = findCloudflared();
+      console.log(`  Tunnel     ${
+        cf.ok
+          ? `cloudflared ready — run: tsf tunnel`
+          : "cloudflared not installed, so `tsf tunnel` cannot share a link yet"
+      }`);
       console.log("");
     },
   },
@@ -1053,3 +1148,8 @@ main().catch((error) => {
   console.error(`\n${error.message}\n`);
   process.exitCode = 1;
 });
+
+/** The domain Google sign-in is restricted to, for the tunnel banner. */
+function loadConfigDomain() {
+  return process.env.TSF_ALLOWED_DOMAIN || "r1concepts.com";
+}

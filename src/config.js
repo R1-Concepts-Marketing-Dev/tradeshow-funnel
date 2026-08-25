@@ -123,10 +123,17 @@ export function loadConfig() {
       googleClientId: merged.TSF_GOOGLE_CLIENT_ID || "",
       googleClientSecret: merged.TSF_GOOGLE_CLIENT_SECRET || "",
       allowedDomain: merged.TSF_ALLOWED_DOMAIN || "r1concepts.com",
+      // The other way in, for a tunnel whose URL changes every restart and so
+      // can never satisfy Google's pre-registered redirect. See src/auth.js.
+      accessPassphrase: merged.TSF_ACCESS_PASSPHRASE || "",
       publicUrl: (merged.TSF_PUBLIC_URL || "http://localhost:4477").replace(/\/+$/, ""),
       // Sessions do not survive a restart without this set, which is fine
       // locally and not fine on a deployed server.
       sessionSecret: merged.TSF_SESSION_SECRET || randomSecret(),
+      // Whether that secret is a real one or the throwaway. A throwaway means
+      // everyone is signed out on every restart, which is fine locally and
+      // annoying over a tunnel, so `tsf tunnel` mentions it.
+      sessionSecretPinned: Boolean(merged.TSF_SESSION_SECRET),
     },
 
     // Where to listen. 127.0.0.1 keeps it off the network; a deploy needs
