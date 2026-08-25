@@ -8,6 +8,12 @@ say what it was, how big it got, or where it was used. This keeps that.
 
 ---
 
+**Doing this for a show right now?** Read [RUNBOOK.md](RUNBOOK.md) — it is the
+step-by-step from a list landing in your inbox to campaigns being ready. This
+file is about how the thing works.
+
+---
+
 ## Quick start
 
 ```bash
