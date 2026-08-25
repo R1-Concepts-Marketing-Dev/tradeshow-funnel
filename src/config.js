@@ -77,6 +77,13 @@ export function loadConfig() {
       clientSecret: merged.HUBSPOT_CLIENT_SECRET || "",
       refreshToken: merged.HUBSPOT_REFRESH_TOKEN || "",
     },
+    // Read-only, for the show report. Absent just means the report has no
+    // paid social section in it.
+    meta: {
+      accessToken: merged.META_ACCESS_TOKEN || "",
+      adAccountId: merged.META_AD_ACCOUNT_ID || "",
+    },
+
     // Google sign-in. Absent = running locally with no login; see src/auth.js.
     auth: {
       googleClientId: merged.TSF_GOOGLE_CLIENT_ID || "",

@@ -218,6 +218,66 @@ export async function getFormSubmissions(formId, limit = 50) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Marketing emails — for the show report
+// ---------------------------------------------------------------------------
+
+/**
+ * Marketing emails created since a date.
+ *
+ * The portal holds ~11,000 of them, so this is always filtered rather than
+ * enumerated. `createdAfter` is the only filter that actually narrows the set
+ * (publishDateAfter is accepted and ignored).
+ */
+export async function listMarketingEmails({ createdAfter, cap = 600 }) {
+  const out = [];
+  let after = null;
+
+  while (out.length < cap) {
+    const query = new URLSearchParams({ limit: "100", createdAfter });
+    if (after) query.set("after", after);
+
+    const page = await get(`/marketing/v3/emails?${query}`);
+    out.push(...(page?.results || []));
+
+    after = page?.paging?.next?.after || null;
+    if (!after || !page?.results?.length) break;
+  }
+  return out;
+}
+
+/**
+ * Per-email stats. The endpoint insists on a time range even when you name
+ * the emails, hence the required window.
+ */
+export async function emailStatistics(emailIds, { since, until }) {
+  if (!emailIds.length) return {};
+
+  const stats = {};
+  // The emailIds parameter is repeated, and a long URL will be rejected, so
+  // ask in modest batches.
+  for (let i = 0; i < emailIds.length; i += 20) {
+    const batch = emailIds.slice(i, i + 20);
+    const query = new URLSearchParams({ startTimestamp: since, endTimestamp: until });
+    for (const id of batch) query.append("emailIds", id);
+
+    try {
+      const page = await get(`/marketing/v3/emails/statistics/list?${query}`);
+      for (const row of page?.results || []) {
+        if (row.emailId) stats[row.emailId] = row.counters || {};
+      }
+      // When only one email is asked for, HubSpot answers with an aggregate
+      // rather than a per-email row.
+      if (!page?.results?.length && page?.aggregate?.counters && batch.length === 1) {
+        stats[batch[0]] = page.aggregate.counters;
+      }
+    } catch {
+      // Stats are a nicety; a failure here must not sink the whole report.
+    }
+  }
+  return stats;
+}
+
 /** Resets the cached token. Only needed in tests. */
 export function _resetTokenCache() {
   cachedToken = null;

@@ -4,4 +4,6 @@ node_modules/
 # Ingest working files may contain personal data — never commit them.
 inbox/
 out/
+# Show reports carry spend figures and downloaded ad creative.
+exports/
 *.rejects.csv

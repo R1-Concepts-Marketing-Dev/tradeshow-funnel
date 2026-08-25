@@ -327,3 +327,66 @@ contact with both `roster_pre` and `badge_scan` on it is the highest-intent
 record a show produces.
 
 One bad file does not stop the batch; it is reported and the rest still run.
+
+---
+
+## Meta campaigns say which show they belong to, in their name
+
+Campaigns and ad sets for this program are built per event, so the show id goes
+in the name as a tag:
+
+```
+DFC | SEMA 2026 | Booth traffic [tsf:sema-2026/booth-traffic]
+```
+
+Everything before the bracket is whatever Meta naming convention you like; the
+tool only reads the tag. `tsf show meta-names --id <show> --brand <brand>`
+prints the names to paste in.
+
+A tag rather than matching on the show name, because names get abbreviated,
+edited and typo'd, and "SEMA" appears in things that have nothing to do with
+the show — `Sema Data Prospects` is the SEMA Data Co-op, not the trade show.
+Matching on that would have put 3,000 product-data prospects into a show report.
+
+A tag naming a **different** show is a definite exclusion, whatever else about
+the ad set looks like a match. That is the one rule that makes the tag
+trustworthy.
+
+There are three weaker fallbacks for ad sets that predate the convention:
+a Meta id recorded against the audience, an ad set that targets one of our
+synced HubSpot audiences (`HubSpot - <list name>`), and the venue city. The
+report always says which one fired, and nudges you to add a tag when anything
+matched without one — a number nobody can trace is worse than a gap.
+
+---
+
+## Report numbers are escaped, because the naming convention uses pipes
+
+`AD | General | Video` turned a six-column markdown table into eight columns.
+Every value from Meta or HubSpot goes through `cell()` in `src/markdown.js`,
+which escapes pipes and collapses newlines.
+
+Found by running the report against the live account rather than a fixture,
+which is the argument for doing that.
+
+---
+
+## The report degrades rather than fails
+
+No Meta token means a report with no paid social section, not an error. A dead
+integration reports itself in a "Gaps in this report" section and the rest still
+renders. A partial report is useful; a crashed one is not, and the person
+running it before a management meeting cannot debug an API.
+
+Each empty section says *why* it is empty — "no audience here has a HubSpot
+list, so no email can be attributed to it" rather than a silent zero. A zero
+that means "nothing happened" and a zero that means "I could not look" are very
+different numbers to put in front of management.
+
+---
+
+## Reach is not summed
+
+Spend, impressions and clicks add up across ads. Reach does not — the same
+person sees more than one ad, and adding it would overstate. The report shows
+the largest single figure and says so.

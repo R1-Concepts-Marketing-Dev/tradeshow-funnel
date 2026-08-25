@@ -119,6 +119,27 @@ const ROUTES = {
     };
   },
 
+  /** Builds and writes the show report. Returns where it went. */
+  "POST /api/reports/show": async (body) => {
+    const reporting = await import("./reporting.js");
+    const { report, directory, images } = await reporting.exportShowReport(body.showId, {
+      withImages: body.withImages !== false,
+    });
+    return {
+      directory,
+      images: images.length,
+      summary: {
+        show: report.show.name,
+        captured: report.intake.totals.created + report.intake.totals.updated,
+        audiences: report.audiences.length,
+        emails: report.email.emails.length,
+        ads: report.paid.ads.length,
+        spend: report.paid.totals?.spend ?? 0,
+      },
+      problems: report.problems,
+    };
+  },
+
   /** Which campaign recipes can be built for a show right now. */
   "POST /api/campaigns/available": (body) => {
     const show = registry.loadShows().find((entry) => entry.id === body.showId);

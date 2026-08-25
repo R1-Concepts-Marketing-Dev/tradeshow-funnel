@@ -68,6 +68,76 @@ const COMMANDS = {
     },
   },
 
+  "show meta-names": {
+    summary: "The Meta campaign and ad set names to use for a show, tagged so the report finds them.",
+    options: { id: { type: "string" }, brand: { type: "string" } },
+    async run({ values }) {
+      require_(values, ["id", "brand"]);
+      const { suggestedNames } = await import("../src/metaNaming.js");
+      const { CAMPAIGN_TYPES, availableFor } = await import("../src/campaigns.js");
+
+      const show = registry.loadShows().find((s) => s.id === values.id);
+      if (!show) throw new Error(`No show "${values.id}".`);
+      const brand = brands.requireBrand(values.brand);
+      const usable = availableFor(show).filter((t) => t.available && t.kind === "geo");
+
+      console.log(`
+  Paste these into Meta. Everything before the bracket is yours;`);
+      console.log(`  the tool only reads the [tsf:...] part.
+`);
+      for (const line of suggestedNames(show, brand, usable)) {
+        console.log(`  ${line.what}`);
+        console.log(`    ${line.name}
+`);
+      }
+      console.log(`  Any ad set carrying the tag counts towards this show's report,`);
+      console.log(`  whatever else is in the name.
+`);
+    },
+  },
+
+  "export show": {
+    summary: "Export a show report — contacts, email, paid social, ad images.",
+    options: {
+      id: { type: "string" },
+      "no-images": { type: "boolean", default: false },
+      out: { type: "string" },
+    },
+    async run({ values }) {
+      require_(values, ["id"]);
+      const reporting = await import("../src/reporting.js");
+
+      console.log(`
+  Gathering ${values.id}…`);
+      const { report, directory, images } = await reporting.exportShowReport(values.id, {
+        withImages: !values["no-images"],
+        outDir: values.out,
+      });
+
+      const captured = report.intake.totals.created + report.intake.totals.updated;
+      console.log(`
+  ${report.show.name}`);
+      console.log(`    contacts captured   ${num(captured)}`);
+      console.log(`    audiences           ${num(report.audiences.length)}`);
+      console.log(`    marketing emails    ${num(report.email.emails.length)}`);
+      console.log(`    meta ads            ${num(report.paid.ads.length)}`);
+      if (report.paid.totals) {
+        console.log(`    spend               $${report.paid.totals.spend.toFixed(2)}`);
+      }
+      console.log(`    creative saved      ${num(images.length)}`);
+
+      for (const problem of report.problems) console.log(`
+  ! ${problem}`);
+
+      console.log(`
+  Written to ${path.relative(process.cwd(), directory)}`);
+      console.log(`    report.md    the readable one, for management`);
+      console.log(`    report.json  the same data, for anything else`);
+      if (images.length) console.log(`    creatives/   ${images.length} ad image(s)`);
+      console.log("");
+    },
+  },
+
   "mcp": {
     summary: "Run the MCP server so Claude can answer questions about the registry.",
     async run() {
@@ -727,6 +797,29 @@ function printRecentHistory(audience, limit = 10) {
   }
 }
 
+/**
+ * Lets a negative number be a value rather than a flag.
+ *
+ * Every longitude in the US is negative, so `--lng -115.15` is a thing people
+ * will type, and parseArgs reads the value as another option. Rewriting it to
+ * `--lng=-115.15` before parsing is less surprising than an error telling
+ * someone to punctuate differently.
+ */
+function joinNegativeNumbers(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const current = args[i];
+    const next = args[i + 1];
+    if (current.startsWith("--") && !current.includes("=") && /^-\d/.test(next || "")) {
+      out.push(`${current}=${next}`);
+      i++;
+    } else {
+      out.push(current);
+    }
+  }
+  return out;
+}
+
 /** Throws a readable error when a required flag is missing. */
 function require_(values, names) {
   const missing = names.filter((name) => !values[name]);
@@ -772,7 +865,7 @@ async function main() {
 
   const rest = argv.slice(name.split(" ").length);
   const { values, positionals } = parseArgs({
-    args: rest,
+    args: joinNegativeNumbers(rest),
     options: command.options || {},
     allowPositionals: true,
   });
