@@ -390,3 +390,30 @@ different numbers to put in front of management.
 Spend, impressions and clicks add up across ads. Reach does not — the same
 person sees more than one ad, and adding it would overstate. The report shows
 the largest single figure and says so.
+
+---
+
+## The code is public; the numbers are not
+
+`tradeshow-funnel` is a public repo. `tradeshow-funnel-data` is private and
+holds the registry — shows, audiences, sizes, history, spend.
+
+The code being public is harmless and arguably useful. The numbers are not:
+audience sizes, contact counts per show, ad spend and which shows we target are
+all worth something to a competitor, and `docs/` explains the whole approach.
+
+This mirrors the split already working here — `dfc-territory-map` is a public
+repo serving an encrypted page, `dfc-territory-data` is private and holds the
+83k-shop database behind it.
+
+`data/` and `AUDIENCES.md` were removed from this repo's **history**, not just
+its tip, and force-pushed. A fresh clone was checked afterwards to confirm.
+
+**Neither repo holds contact records.** The history log records counts —
+`created: 2611, rejected: 214` — never rows. Rejected rows land next to the
+input file and are gitignored; export bundles likewise. Contacts belong in
+HubSpot, behind a HubSpot login.
+
+`tsf doctor` exists because the failure mode here is quiet: with `TSF_DATA_DIR`
+unset the tool happily writes to a gitignored `./data`, and everything appears
+to work while being invisible to everyone else and backed up nowhere.

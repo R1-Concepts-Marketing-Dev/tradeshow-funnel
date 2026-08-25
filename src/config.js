@@ -16,9 +16,12 @@ export const ROOT = path.resolve(here, "..");
 /**
  * Where the registry lives.
  *
- * Defaults to ./data, which is right for running locally. When this is deployed
- * somewhere shared, point TSF_DATA_DIR at a persistent disk — otherwise the
- * whole audience history is wiped on every redeploy.
+ * This repo is PUBLIC, so the registry is not in it. It lives in the private
+ * repo tradeshow-funnel-data, and TSF_DATA_DIR points at your clone of that.
+ *
+ * Falling back to ./data keeps a fresh checkout working, but that folder is
+ * gitignored here — anything written to it is invisible to everyone else and
+ * is not backed up. `tsf doctor` says so out loud.
  */
 const DATA_DIR = process.env.TSF_DATA_DIR
   ? path.resolve(process.env.TSF_DATA_DIR)

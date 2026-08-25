@@ -68,6 +68,49 @@ const COMMANDS = {
     },
   },
 
+  "doctor": {
+    summary: "Check the setup — where the registry is, and whether credentials work.",
+    async run() {
+      const { PATHS, loadConfig } = await import("../src/config.js");
+      const config = loadConfig();
+      const shared = Boolean(process.env.TSF_DATA_DIR);
+
+      console.log(`
+  Registry   ${PATHS.data}`);
+      if (shared) {
+        console.log(`             from TSF_DATA_DIR — shared, and backed up if you push it`);
+      } else {
+        console.log(`             ! TSF_DATA_DIR is not set, so this is the repo's own ./data`);
+        console.log(`             ! That folder is gitignored here, because this repo is public.`);
+        console.log(`             ! Anything you do is invisible to everyone else and not backed up.`);
+        console.log(`             ! Fix: clone tradeshow-funnel-data and point TSF_DATA_DIR at it.`);
+      }
+
+      const shows = registry.loadShows();
+      const auds = registry.listAudiences();
+      console.log(`             ${shows.length} show(s), ${auds.length} audience(s)`);
+
+      console.log(`
+  HubSpot    ${config.hubspot.refreshToken ? "refresh token present" : config.hubspot.accessToken ? "access token only (expires in 30 min)" : "! no credentials"}`);
+      try {
+        const props = await hubspot.get("/crm/v3/properties/contacts");
+        const have = new Set((props?.results || []).map((p) => p.name));
+        const { PROPERTIES } = await import("../src/setup.js");
+        const missing = PROPERTIES.filter((p) => !have.has(p.name));
+        console.log(missing.length
+          ? `             ! ${missing.length} property missing — run: tsf setup --commit`
+          : `             all ${PROPERTIES.length} ts_* properties present`);
+      } catch (error) {
+        console.log(`             ! ${error.message.slice(0, 90)}`);
+      }
+
+      console.log(`
+  Meta       ${config.meta.accessToken && config.meta.adAccountId ? "credentials present" : "not set — show reports will have no paid social section"}`);
+      console.log(`  Sign-in    ${config.auth.googleClientId ? "Google configured" : "not configured — local use only, which is the default"}`);
+      console.log("");
+    },
+  },
+
   "publish": {
     summary: "Build the encrypted page the team can open. Nothing is uploaded — you place the file.",
     options: {

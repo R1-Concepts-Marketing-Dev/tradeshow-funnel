@@ -9,6 +9,13 @@ of every audience built from them. The point of the record is that someone can
 ask, months later, what was built and how it performed — and get a real answer
 rather than a guess.
 
+## Where the data is
+
+This repo is public and holds only code. The registry — shows, audiences,
+history — is in the **private** repo `tradeshow-funnel-data`, which is what
+`TSF_DATA_DIR` points at. If you are looking for `data/` here and cannot find
+it, that is why.
+
 ## Where to look, in order
 
 1. **`AUDIENCES.md`** — start here for almost any question. It is generated from
