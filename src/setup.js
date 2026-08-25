@@ -8,6 +8,7 @@
 // the internal name has to match exactly or the tool will not find it.
 
 import * as hubspot from "./hubspot.js";
+import { loadShows } from "./registry.js";
 
 /** The property group everything lands in, so it is easy to find in the UI. */
 export const GROUP_NAME = "tradeshow";
@@ -68,7 +69,11 @@ export const PROPERTIES = [
     description:
       "Every show this contact has appeared at. Appends. Repeat attendance is " +
       "the strongest intent signal we have, and overwriting hides it.",
-    options: [], // filled in as shows are added
+    // Seeded from the shows already registered, then appended to by
+    // addShowOption() as new ones are added. HubSpot rejects a dropdown with
+    // no options at all, hence the fallback.
+    optionsFromShows: true,
+    options: [],
   },
   {
     name: "ts_first_event",
@@ -183,6 +188,10 @@ export async function setupProperties({ commit = false } = {}) {
     }
   }
 
+  // A dropdown needs at least one option, so seed the show list from whatever
+  // is already registered.
+  const showOptions = loadShows().map((show) => show.id);
+
   for (const [index, property] of PROPERTIES.entries()) {
     if (existingNames.has(property.name)) {
       report.properties.push({ name: property.name, status: "exists" });
@@ -190,14 +199,29 @@ export async function setupProperties({ commit = false } = {}) {
       continue;
     }
 
+    const resolved = property.optionsFromShows
+      ? { ...property, options: showOptions.length ? showOptions : ["placeholder"] }
+      : property;
+
     if (!commit) {
       report.properties.push({ name: property.name, status: "would add" });
       continue;
     }
 
-    await hubspot.post("/crm/v3/properties/contacts", toPayload(property, index));
-    report.properties.push({ name: property.name, status: "created" });
-    report.created++;
+    // One property failing must not abandon the other twelve — report it and
+    // carry on, so a re-run only has to deal with what actually broke.
+    try {
+      await hubspot.post("/crm/v3/properties/contacts", toPayload(resolved, index));
+      report.properties.push({ name: property.name, status: "created" });
+      report.created++;
+    } catch (error) {
+      report.properties.push({
+        name: property.name,
+        status: "FAILED",
+        error: error.message.replace(/^HubSpot POST \S+ → /, ""),
+      });
+      report.failed = (report.failed || 0) + 1;
+    }
   }
 
   return report;

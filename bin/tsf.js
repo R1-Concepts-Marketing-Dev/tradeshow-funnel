@@ -32,7 +32,8 @@ const COMMANDS = {
     async run({ values }) {
       const result = await setupProperties({ commit: values.commit });
       for (const item of result.properties) {
-        console.log(`  ${item.status.padEnd(8)} ${item.name}`);
+        console.log(`  ${item.status.padEnd(9)} ${item.name}`);
+        if (item.error) console.log(`            ${item.error.slice(0, 150)}`);
       }
       console.log(
         values.commit
@@ -63,6 +64,16 @@ const COMMANDS = {
       }
 
       // Hold the process open until the user stops it.
+      await new Promise(() => {});
+    },
+  },
+
+  "mcp": {
+    summary: "Run the MCP server so Claude can answer questions about the registry.",
+    async run() {
+      const { startMcpServer } = await import("../src/mcp.js");
+      startMcpServer();
+      // Held open by stdin; Claude closes it when it is done.
       await new Promise(() => {});
     },
   },
