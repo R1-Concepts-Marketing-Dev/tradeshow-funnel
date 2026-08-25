@@ -541,8 +541,10 @@ function renderFileTabs() {
       .join("");
   }
 
+  // With tabs on screen the active filename is already obvious, so naming it
+  // again in the heading is just noise. Only label it when there are no tabs.
   const active = state.upload.files[state.upload.activeFile];
-  $("#mapping-for").textContent = active?.ok ? active.filename : "";
+  $("#mapping-for").textContent = files.length < 2 && active?.ok ? active.filename : "";
 }
 
 /** The column mapping table, for whichever file is selected. */
