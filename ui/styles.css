@@ -110,7 +110,11 @@ button { cursor: pointer; }
 
 /* ---------- tabs ---------- */
 .tabs { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
-.tabs-inner { display: flex; align-items: center; gap: 2px; }
+/* Scrolls rather than overflowing the page on a narrow window — the tabs plus
+   the Refresh button are wider than a phone. */
+.tabs-inner { display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tabs-inner::-webkit-scrollbar { display: none; }
+.tab { flex: none; }
 .tab {
   border: none; background: none; color: var(--muted);
   padding: 13px 15px; font-size: 13.5px; font-weight: 600;
@@ -349,4 +353,9 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
   .feed li { grid-template-columns: 1fr; gap: 3px; }
   .wrap { padding: 0 14px; }
   main { padding: 16px 14px 60px; }
+  .tab { padding: 12px 11px; }
+  .topbar-inner { gap: 12px; }
+  .brandmark .sub { display: none; }
+  .kv { grid-template-columns: 1fr; gap: 1px 0; }
+  .kv dt { margin-top: 7px; }
 }
