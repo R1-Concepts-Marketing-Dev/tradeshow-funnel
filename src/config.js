@@ -95,6 +95,16 @@ export function loadConfig() {
       adAccountId: merged.META_AD_ACCOUNT_ID || "",
     },
 
+    // Google Ads, read-only, for the show report's paid search section.
+    google: {
+      clientId: merged.GOOGLE_CLIENT_ID || "",
+      clientSecret: merged.GOOGLE_CLIENT_SECRET || "",
+      refreshToken: merged.GOOGLE_REFRESH_TOKEN || "",
+      developerToken: merged.GOOGLE_DEVELOPER_TOKEN || "",
+      customerId: String(merged.GOOGLE_CUSTOMER_ID || "").replace(/-/g, ""),
+      loginCustomerId: String(merged.GOOGLE_LOGIN_CUSTOMER_ID || "").replace(/-/g, ""),
+    },
+
     // Google sign-in. Absent = running locally with no login; see src/auth.js.
     auth: {
       googleClientId: merged.TSF_GOOGLE_CLIENT_ID || "",

@@ -853,6 +853,8 @@ function showCard(show) {
             ? ""
             : `<button class="btn btn-primary btn-sm" data-research="${esc(show.id)}">Look up venue</button>`
         }
+        <button class="btn btn-sm" data-report="${esc(show.id)}"
+                title="Contacts, email, ad spend and the ad creative, written to a folder">Export report</button>
         ${
           show.venue
             ? `<button class="btn btn-primary btn-sm" data-create-aud="${esc(show.id)}">Create audiences…</button>`
@@ -1021,6 +1023,40 @@ document.addEventListener("click", async (event) => {
       await api("/api/shows/research", { showId, venue: input?.value.trim() || "" });
       toast("Venue found — you can geo-target this show now", "good");
       await loadState();
+    });
+  }
+
+  const reportButton = target.closest("[data-report]");
+  if (reportButton) {
+    return run(async () => {
+      toast("Gathering the report — reading HubSpot, Meta and Google…");
+      const result = await api("/api/reports/show", { showId: reportButton.dataset.report });
+      const s = result.summary;
+      const slot = $(`.create-slot[data-slot="${CSS.escape(reportButton.dataset.report)}"]`);
+      slot.innerHTML = `<div class="notice good" style="margin-top:14px">
+        <b>Report written.</b> ${esc(result.directory)}
+        <ul>
+          <li>${fmt(s.captured)} contact(s) captured · ${fmt(s.audiences)} audience(s)</li>
+          <li>${fmt(s.emails)} marketing email(s) · ${fmt(s.ads)} ad(s) · ${esc(result.images)} creative image(s) saved</li>
+          <li>${s.spend ? "$" + s.spend.toFixed(2) + " ad spend" : "no ad spend found for this show"}</li>
+        </ul>
+        Open <code>report.md</code> in that folder — it is the one for management.
+        ${result.problems.length ? `<p class="hint">${result.problems.map(esc).join(" ")}</p>` : ""}
+      </div>`;
+      toast("Report written", "good");
+    });
+  }
+
+  if (target.closest("#publish-btn")) {
+    return run(async () => {
+      toast("Building and publishing the team page…");
+      const result = await api("/api/publish", { deploy: true, force: true });
+      toast(
+        result.deployed
+          ? `Published — ${(result.bytes / 1024).toFixed(0)} KB, ${result.shows} show(s)`
+          : result.deployNote || "Nothing changed since the last publish",
+        "good"
+      );
     });
   }
 

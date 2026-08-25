@@ -43,6 +43,7 @@ export const ACTIONS = {
   AUDIENCE_DESTINATION_SET: "audience.destination_set",
   REPORT_EXPORTED: "report.exported",
   PUBLISHED: "published",
+  IMPORT_REVERSED: "import.reversed",
   NOTE: "note",
 };
 

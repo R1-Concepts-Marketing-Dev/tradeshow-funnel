@@ -21,6 +21,7 @@ import path from "node:path";
 import { PATHS, ROOT } from "./config.js";
 import * as hubspot from "./hubspot.js";
 import * as meta from "./meta.js";
+import * as google from "./google.js";
 import * as registry from "./registry.js";
 import * as brands from "./brands.js";
 import { cell, num, money, pct, day } from "./markdown.js";
@@ -80,6 +81,7 @@ export async function collectShowReport(showId) {
     audiences,
     email: { emails: [], totals: null, note: null },
     paid: { adSets: [], ads: [], totals: null, note: null },
+    search: { campaigns: [], totals: null, note: null },
     problems: [],
   };
 
@@ -97,6 +99,14 @@ export async function collectShowReport(showId) {
   } catch (error) {
     report.paid.note = `Could not read Meta: ${error.message}`;
     report.problems.push(report.paid.note);
+  }
+
+  // ---- paid search -------------------------------------------------------
+  try {
+    report.search = await collectSearch(show, audiences, window);
+  } catch (error) {
+    report.search.note = `Could not read Google Ads: ${error.message}`;
+    report.problems.push(report.search.note);
   }
 
   return report;
@@ -273,6 +283,35 @@ async function collectPaid(show, audiences, window) {
   };
 }
 
+/** Google Ads campaigns belonging to this show, with spend. */
+async function collectSearch(show, audiences, window) {
+  const all = await google.campaigns(window);
+  const mine = google.matchCampaigns(show, audiences, all);
+
+  if (!mine.length) {
+    return {
+      campaigns: [],
+      totals: null,
+      note:
+        `Looked at ${all.length} Google campaign(s) and could not tie any to this show. ` +
+        `Put [tsf:${show.id}] in the campaign name — run \`tsf show meta-names --id ${show.id}\` ` +
+        `for the format; the same tag works for Google.`,
+    };
+  }
+
+  const totals = mine.reduce(
+    (acc, c) => ({
+      spend: acc.spend + c.spend,
+      impressions: acc.impressions + c.impressions,
+      clicks: acc.clicks + c.clicks,
+      conversions: acc.conversions + c.conversions,
+    }),
+    { spend: 0, impressions: 0, clicks: 0, conversions: 0 }
+  );
+
+  return { campaigns: mine, totals, note: null };
+}
+
 // ---------------------------------------------------------------------------
 // Exporting
 // ---------------------------------------------------------------------------
@@ -358,13 +397,15 @@ export function renderShowReport(report) {
     out.push(`| Opens | ${num(email.totals.open)} (${pct(email.totals.open, email.totals.delivered)}) |`);
     out.push(`| Clicks | ${num(email.totals.click)} (${pct(email.totals.click, email.totals.delivered)}) |`);
   }
-  if (paid.totals) {
-    out.push(`| Paid social spend | **${money(paid.totals.spend)}** |`);
-    out.push(`| Impressions | ${num(paid.totals.impressions)} |`);
-    out.push(`| Clicks | ${num(paid.totals.clicks)} |`);
+  const social = paid.totals?.spend || 0;
+  const search = report.search?.totals?.spend || 0;
+  if (paid.totals) out.push(`| Paid social spend | ${money(social)} |`);
+  if (report.search?.totals) out.push(`| Paid search spend | ${money(search)} |`);
+  if (social || search) {
+    out.push(`| **Total ad spend** | **${money(social + search)}** |`);
     const captured = intake.totals.created + intake.totals.updated;
-    if (captured && paid.totals.spend) {
-      out.push(`| Cost per contact captured | ${money(paid.totals.spend / captured)} |`);
+    if (captured) {
+      out.push(`| Cost per contact captured | **${money((social + search) / captured)}** |`);
     }
   }
   out.push("");
@@ -528,6 +569,37 @@ export function renderShowReport(report) {
       }
     }
   }
+
+  // ---- paid search -------------------------------------------------------
+  out.push("## Paid search");
+  out.push("");
+  if (report.search?.note) {
+    out.push(`_${report.search.note}_`);
+  } else if (report.search?.campaigns?.length) {
+    out.push("| Campaign | Type | Matched because | Spend | Impressions | Clicks | Conv. |");
+    out.push("| --- | --- | --- | ---: | ---: | ---: | ---: |");
+    for (const c of report.search.campaigns) {
+      out.push(
+        `| ${cell(c.name)} | ${cell(c.channel)} | ${cell(c.matchedBecause)} ` +
+          `| ${money(c.spend)} | ${num(c.impressions)} | ${num(c.clicks)} | ${num(c.conversions)} |`
+      );
+    }
+    const t = report.search.totals;
+    out.push(
+      `| **Total** | | | **${money(t.spend)}** | **${num(t.impressions)}** ` +
+        `| **${num(t.clicks)}** | **${num(t.conversions)}** |`
+    );
+
+    const untagged = report.search.campaigns.filter((c) => c.matchedVia !== "tag");
+    if (untagged.length) {
+      out.push("");
+      out.push(
+        `> ${untagged.length} matched without a tag. Putting \`[tsf:${show.id}]\` in the ` +
+          "campaign name makes it exact — the same tag works for Google and Meta."
+      );
+    }
+  }
+  out.push("");
 
   if (report.problems.length) {
     out.push("## Gaps in this report");

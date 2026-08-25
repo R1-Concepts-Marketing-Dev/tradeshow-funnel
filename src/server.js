@@ -140,6 +140,41 @@ const ROUTES = {
     };
   },
 
+  /** Builds and deploys the encrypted viewer. */
+  "POST /api/publish": async (body) => {
+    const { publish, deploy } = await import("./publish.js");
+    const result = publish({ force: Boolean(body.force) });
+    if (!body.deploy) return { ...result, deployed: false };
+
+    const outcome = deploy(result.file);
+    return { ...result, deployed: outcome.pushed, deployNote: outcome.reason || null };
+  },
+
+  /** Undoes an import — see src/reverse.js for what "undo" can and cannot mean. */
+  "POST /api/imports/reverse": async (body) => {
+    const { reverseBatch } = await import("./reverse.js");
+    return reverseBatch(body.batchId, { commit: Boolean(body.commit) });
+  },
+
+  /** Every import batch, so one can be picked to undo. */
+  "GET /api/imports": () => ({
+    batches: registry
+      .readHistory({ action: "import.committed" })
+      .concat(registry.readHistory({ action: "tablet.claimed" }))
+      .map((e) => ({
+        batchId: e.batchId,
+        at: e.at,
+        file: e.file || "(claimed from form)",
+        showId: e.showId,
+        source: e.source,
+        brand: e.brand,
+        created: e.created ?? e.contacts ?? 0,
+        updated: e.updated ?? 0,
+      }))
+      .filter((b) => b.batchId)
+      .sort((a, b) => (a.at < b.at ? 1 : -1)),
+  }),
+
   /** Which campaign recipes can be built for a show right now. */
   "POST /api/campaigns/available": (body) => {
     const show = registry.loadShows().find((entry) => entry.id === body.showId);

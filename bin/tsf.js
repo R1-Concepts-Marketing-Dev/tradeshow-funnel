@@ -68,6 +68,51 @@ const COMMANDS = {
     },
   },
 
+  "imports": {
+    summary: "List every import batch, newest first. Use the batch id to undo one.",
+    async run() {
+      const rows = [
+        ...registry.readHistory({ action: "import.committed" }),
+        ...registry.readHistory({ action: "tablet.claimed" }),
+      ]
+        .filter((e) => e.batchId)
+        .sort((a, b) => (a.at < b.at ? 1 : -1));
+
+      if (!rows.length) return console.log("No imports yet.");
+      for (const e of rows) {
+        console.log(`
+  ${e.at.slice(0, 16).replace("T", " ")}  ${e.showId} / ${e.source}`);
+        console.log(`    ${e.file || "(claimed from form)"} — ${num(e.created ?? e.contacts)} created, ${num(e.updated ?? 0)} updated`);
+        console.log(`    ${e.batchId}`);
+      }
+      console.log("\n  Undo one with:  tsf imports reverse --batch <id>\n");
+    },
+  },
+
+  "imports reverse": {
+    summary: "Undo an import — un-stamps the show. Does not delete contacts.",
+    options: { batch: { type: "string" }, commit: { type: "boolean", default: false } },
+    async run({ values }) {
+      require_(values, ["batch"]);
+      const { reverseBatch } = await import("../src/reverse.js");
+      const { summary } = await reverseBatch(values.batch, { commit: values.commit });
+
+      console.log(`
+  ${summary.file} → ${summary.showName} (${summary.source})`);
+      console.log(`    imported          ${summary.importedAt.slice(0, 16).replace("T", " ")}`);
+      console.log(`    contacts found    ${num(summary.found)}`);
+      console.log(`    will un-stamp     ${num(summary.willUpdate)}`);
+      console.log(`\n  ${summary.caveat}`);
+
+      if (!summary.committed) {
+        console.log("\n  Nothing was changed. Re-run with --commit.\n");
+      } else {
+        console.log("\n  Done. Refresh your audiences: tsf audience refresh --all\n");
+        writeReport();
+      }
+    },
+  },
+
   "doctor": {
     summary: "Check the setup — where the registry is, and whether credentials work.",
     async run() {
@@ -107,6 +152,20 @@ const COMMANDS = {
 
       console.log(`
   Meta       ${config.meta.accessToken && config.meta.adAccountId ? "credentials present" : "not set — show reports will have no paid social section"}`);
+      const g = config.google;
+      if (g.clientId && g.developerToken && g.customerId) {
+        const { API_VERSION } = await import("../src/google.js");
+        console.log(`  Google Ads customer ${g.customerId}, API ${API_VERSION}`);
+        try {
+          const { campaigns } = await import("../src/google.js");
+          const rows = await campaigns({ since: "2026-01-01", until: "2026-12-31" });
+          console.log(`             ${rows.length} campaign(s) readable`);
+        } catch (error) {
+          console.log(`             ! ${error.message.slice(0, 110)}`);
+        }
+      } else {
+        console.log(`  Google Ads not set — show reports will have no paid search section`);
+      }
       console.log(`  Sign-in    ${config.auth.googleClientId ? "Google configured" : "not configured — local use only, which is the default"}`);
       console.log("");
     },
