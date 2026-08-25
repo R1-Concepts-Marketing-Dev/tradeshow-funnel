@@ -10,3 +10,9 @@ exports/
 # not in this repo's history.
 published/
 *.rejects.csv
+
+# The registry lives in the PRIVATE repo tradeshow-funnel-data, not here.
+# This repo is public; audience sizes, contact counts and spend are not.
+# Point TSF_DATA_DIR at your clone of it — see README.
+data/
+AUDIENCES.md
