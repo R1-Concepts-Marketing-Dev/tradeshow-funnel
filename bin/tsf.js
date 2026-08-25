@@ -1,0 +1,606 @@
+#!/usr/bin/env node
+// tsf.js — the one command. Run `tsf` with no arguments for help.
+//
+// EDIT THIS FILE IF: you are adding a command. Each command is a small function
+// in COMMANDS below; keep the real work in src/ and keep this file about
+// parsing arguments and printing results.
+
+import { parseArgs } from "node:util";
+import path from "node:path";
+import fs from "node:fs";
+
+import { ensureDataDirs } from "../src/config.js";
+import * as hubspot from "../src/hubspot.js";
+import * as registry from "../src/registry.js";
+import * as audiences from "../src/audiences.js";
+import * as ingest from "../src/ingest.js";
+import * as geo from "../src/geo.js";
+import { writeReport } from "../src/report.js";
+import { setupProperties } from "../src/setup.js";
+
+const num = (value) => (value == null ? "—" : Number(value).toLocaleString("en-US"));
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+const COMMANDS = {
+  "setup": {
+    summary: "Create the ts_* contact properties in HubSpot. Run this once, first.",
+    options: { commit: { type: "boolean", default: false } },
+    async run({ values }) {
+      const result = await setupProperties({ commit: values.commit });
+      for (const item of result.properties) {
+        console.log(`  ${item.status.padEnd(8)} ${item.name}`);
+      }
+      console.log(
+        values.commit
+          ? `\nDone. ${result.created} created, ${result.existing} already there.`
+          : `\nPreview only — nothing written. Re-run with --commit to create them.`
+      );
+    },
+  },
+
+  "show add": {
+    summary: "Register a trade show.",
+    options: {
+      id: { type: "string" },
+      name: { type: "string" },
+      start: { type: "string" },
+      end: { type: "string" },
+      city: { type: "string", default: "" },
+    },
+    async run({ values }) {
+      require_(values, ["name", "start", "end"]);
+      const id = values.id || registry.slugify(values.name);
+      const show = registry.addShow({
+        id,
+        name: values.name,
+        startDate: values.start,
+        endDate: values.end,
+        city: values.city,
+      });
+      console.log(`Added show "${show.name}" as \`${show.id}\`.`);
+      writeReport();
+    },
+  },
+
+  "show list": {
+    summary: "List registered shows.",
+    async run() {
+      const shows = registry.loadShows();
+      if (!shows.length) return console.log("No shows yet. Add one with `tsf show add`.");
+      for (const show of shows) {
+        console.log(
+          `  ${show.id.padEnd(24)} ${show.name}  (${show.startDate} → ${show.endDate})` +
+            (show.formIds?.length ? `  forms: ${show.formIds.join(", ")}` : "")
+        );
+      }
+    },
+  },
+
+  "show link-form": {
+    summary: "Attach a HubSpot form ID to a show, so tablet sign-ups can be traced.",
+    options: { show: { type: "string" }, form: { type: "string" } },
+    async run({ values }) {
+      require_(values, ["show", "form"]);
+      const shows = registry.loadShows();
+      const show = shows.find((s) => s.id === values.show);
+      if (!show) throw new Error(`No show "${values.show}".`);
+      if (!show.formIds.includes(values.form)) show.formIds.push(values.form);
+      registry.saveShows(shows);
+      console.log(`Linked form ${values.form} to ${show.name}.`);
+      writeReport();
+    },
+  },
+
+  "show research": {
+    summary: "Look up a show's venue and coordinates, so you can geo-target it.",
+    options: {
+      id: { type: "string" },
+      venue: { type: "string" },
+      lat: { type: "string" },
+      lng: { type: "string" },
+    },
+    async run({ values }) {
+      require_(values, ["id"]);
+      const shows = registry.loadShows();
+      const show = shows.find((s) => s.id === values.id);
+      if (!show) throw new Error(`No show "${values.id}".`);
+
+      let venue;
+      if (values.lat && values.lng) {
+        // Manual override, for when the geocoder cannot find a venue.
+        venue = {
+          name: values.venue || show.name,
+          lat: Number(values.lat),
+          lng: Number(values.lng),
+          displayName: "",
+        };
+      } else {
+        const query = values.venue || `${show.name} ${show.city || ""}`.trim();
+        console.log(`Looking up "${query}" …`);
+        const hit = await geo.geocode(query);
+        if (!hit) {
+          throw new Error(
+            `Could not find "${query}". Try a fuller name (e.g. "Las Vegas Convention Center, Las Vegas NV"),\n` +
+              `or pass coordinates directly: --lat 36.1316 --lng -115.1520`
+          );
+        }
+        venue = { name: values.venue || query, ...hit };
+      }
+
+      registry.setShowVenue(show.id, venue);
+      console.log(`\n  ${venue.name}`);
+      if (venue.displayName) console.log(`  ${venue.displayName}`);
+      console.log(`  ${venue.lat}, ${venue.lng}\n`);
+
+      const spec = geo.buildGeoSpec({ ...show, venue });
+      console.log(geo.formatGeoSpec(spec));
+      console.log(`\nCreate the geo audience with:`);
+      console.log(`  tsf audience create --type geo --show ${show.id} --commit`);
+      writeReport();
+    },
+  },
+
+  "show geo": {
+    summary: "Print the geo-targeting spec for a show without creating anything.",
+    options: {
+      id: { type: "string" },
+      "lead-days": { type: "string" },
+      "lag-days": { type: "string" },
+    },
+    async run({ values }) {
+      require_(values, ["id"]);
+      const show = registry.loadShows().find((s) => s.id === values.id);
+      if (!show) throw new Error(`No show "${values.id}".`);
+      const spec = geo.buildGeoSpec(show, {
+        leadDays: values["lead-days"] ? Number(values["lead-days"]) : undefined,
+        lagDays: values["lag-days"] ? Number(values["lag-days"]) : undefined,
+      });
+      console.log(geo.formatGeoSpec(spec));
+    },
+  },
+
+  "import": {
+    summary: "Read a CSV, merge it, and preview. Add --commit to actually write.",
+    options: {
+      file: { type: "string" },
+      show: { type: "string" },
+      source: { type: "string" },
+      commit: { type: "boolean", default: false },
+      profile: { type: "string" },
+      "save-profile": { type: "string" },
+      "consent-text": { type: "string", default: "" },
+    },
+    async run({ values }) {
+      require_(values, ["file", "show", "source"]);
+      const mappings = ingest.loadMappings();
+      const saved = values.profile ? mappings[values.profile] : undefined;
+      if (values.profile && !saved) {
+        console.log(`(no saved profile "${values.profile}" yet — guessing columns)`);
+      }
+
+      const result = await ingest.ingestFile({
+        file: values.file,
+        showId: values.show,
+        source: values.source,
+        mapping: saved,
+        commit: values.commit,
+        consentTextId: values["consent-text"],
+      });
+
+      console.log("\nColumn mapping used:");
+      for (const [field, header] of Object.entries(result.mapping)) {
+        console.log(`  ${field.padEnd(14)} <- "${header}"`);
+      }
+
+      const s = result.summary;
+      console.log("\nDry-run preview:" .replace("Dry-run", s.committed ? "Committed" : "Dry-run"));
+      console.log(`  rows read           ${num(s.rowsRead)}`);
+      console.log(`  contacts to write   ${num(s.contacts)}`);
+      console.log(`    · created         ${num(s.created)}`);
+      console.log(`    · updated         ${num(s.updated)}`);
+      console.log(`  merged within file  ${num(s.mergedWithinFile)}`);
+      console.log(`  needs review        ${num(s.needsReview)}`);
+      console.log(`  rejected            ${num(s.rejected)}`);
+
+      if (result.rejects.length) {
+        const file = ingest.writeRejects(values.file, result.rejects);
+        console.log(`\n  Rejected rows written to ${path.basename(file)}`);
+        for (const reject of result.rejects.slice(0, 5)) {
+          console.log(`    row ${reject.rowNumber}: ${reject.reason}`);
+        }
+        if (result.rejects.length > 5) console.log(`    … and ${result.rejects.length - 5} more`);
+      }
+
+      if (result.review.length) {
+        console.log(`\n  ${result.review.length} possible duplicate(s) need a human:`);
+        for (const item of result.review.slice(0, 5)) {
+          console.log(`    ${item.contact.email || item.contact.phone} — ${item.reason}`);
+        }
+      }
+
+      if (values["save-profile"]) {
+        ingest.saveMapping(values["save-profile"], result.mapping);
+        console.log(`\n  Saved column mapping as profile "${values["save-profile"]}".`);
+      }
+
+      if (!s.committed) {
+        console.log("\nNothing was written. Re-run with --commit when the preview looks right.");
+      } else {
+        console.log("\nCommitted. Refresh your audiences next: tsf audience refresh --all");
+        writeReport();
+      }
+    },
+  },
+
+  "audience create": {
+    summary:
+      "Create an audience. --type list (people you collected), geo (the show " +
+      "venue and dates), or both.",
+    options: {
+      type: { type: "string", default: "list" }, // list | geo | both
+      name: { type: "string" },
+      purpose: { type: "string", default: "" },
+      show: { type: "string" },                  // required for geo
+      shows: { type: "string", default: "" },    // for list audiences
+      sources: { type: "string", default: "" },
+      "lead-days": { type: "string" },
+      "lag-days": { type: "string" },
+      commit: { type: "boolean", default: false },
+    },
+    async run({ values }) {
+      const type = values.type;
+      if (!["list", "geo", "both"].includes(type)) {
+        throw new Error(`--type must be list, geo, or both (got "${type}").`);
+      }
+
+      // With --type both, one half already existing should not stop the other.
+      // Only a genuine failure of the half you asked for is an error.
+      const tolerate = type === "both";
+
+      // ---- geo ------------------------------------------------------------
+      if (type === "geo" || type === "both") {
+        require_(values, ["show"]);
+        const show = registry.loadShows().find((s) => s.id === values.show);
+        if (!show) throw new Error(`No show "${values.show}".`);
+
+        try {
+          const result = await audiences.createGeoAudience({
+          show,
+          name: type === "both" ? `${show.name} — Geo` : values.name,
+          purpose: values.purpose,
+          leadDays: values["lead-days"] ? Number(values["lead-days"]) : undefined,
+          lagDays: values["lag-days"] ? Number(values["lag-days"]) : undefined,
+          dryRun: !values.commit,
+        });
+
+        if (result.dryRun) {
+          console.log(`Would create geo audience \`${result.id}\`:\n`);
+          console.log(geo.formatGeoSpec(result.spec));
+          console.log("\nNothing was created. Re-run with --commit.\n");
+        } else {
+          const spec = result.definition.geo;
+          console.log(`Created geo audience \`${result.id}\`.`);
+          console.log(`  ${spec.venue.name} — ${spec.window.runStart} → ${spec.window.runEnd} (${spec.window.totalDays} days)`);
+          console.log(`  Set it up with: tsf audience show --id ${result.id}\n`);
+        }
+        } catch (error) {
+          if (!tolerate || !/already exists/.test(error.message)) throw error;
+          console.log(`Geo audience already exists — leaving it alone.`);
+        }
+      }
+
+      // ---- list -----------------------------------------------------------
+      if (type === "list" || type === "both") {
+        const shows = values.shows ? splitCsv(values.shows) : (values.show ? [values.show] : []);
+        const sources = splitCsv(values.sources);
+        const name = type === "both"
+          ? `${(registry.loadShows().find((s) => s.id === values.show)?.name) || values.show} — Contacts`
+          : values.name;
+        if (!name) throw new Error("Missing required option: --name");
+
+        const result = await audiences.createAudience({
+          name,
+          purpose: values.purpose,
+          shows,
+          sources,
+          dryRun: !values.commit,
+        });
+
+        if (result.dryRun) {
+          console.log(`Would create list audience \`${result.id}\`:`);
+          console.log(`  name     ${name}`);
+          console.log(`  shows    ${shows.join(", ") || "(any)"}`);
+          console.log(`  sources  ${sources.join(", ") || "(any)"}`);
+          console.log("\nNothing was created. Re-run with --commit.");
+        } else {
+          const size = result.sizeHistory.at(-1)?.size ?? 0;
+          console.log(`Created list audience \`${result.id}\` (HubSpot list ${result.hubspotListId}), size ${num(size)}.`);
+          console.log("A new dynamic list can read 0 until HubSpot evaluates it —");
+          console.log(`run \`tsf audience refresh --id ${result.id}\` in a few minutes.`);
+        }
+      }
+
+      if (values.commit) writeReport();
+    },
+  },
+
+  "audience list": {
+    summary: "Show every audience and its current size.",
+    async run() {
+      const all = registry.listAudiences();
+      if (!all.length) return console.log("No audiences yet. Create one with `tsf audience create`.");
+      for (const audience of all) {
+        const latest = audience.sizeHistory.at(-1);
+        const mark = audience.status === "active" ? " " : "×";
+        const type = (audience.type || "list").padEnd(4);
+        const size = audience.type === "geo"
+          ? (audience.definition.geo?.window?.totalDays ?? "?") + "d"
+          : num(latest?.size);
+        console.log(
+          `${mark} ${type} ${audience.id.padEnd(32)} ${String(size).padStart(9)}  ` +
+            `${audience.destinations.map((d) => d.platform).join(",") || "—"}`
+        );
+      }
+    },
+  },
+
+  "audience show": {
+    summary: "Everything we know about one audience.",
+    options: { id: { type: "string" } },
+    async run({ values }) {
+      require_(values, ["id"]);
+      const audience = registry.loadAudience(values.id);
+      if (!audience) throw new Error(`No audience "${values.id}".`);
+
+      console.log(`${audience.name}  [${audience.status}]`);
+      console.log(`  purpose      ${audience.purpose || "(not recorded)"}`);
+      console.log(`  created      ${audience.createdAt.slice(0, 10)} by ${audience.createdBy}`);
+      console.log(`  type         ${audience.type || "list"}`);
+      console.log(`  hubspot list ${audience.hubspotListId ?? "(none)"}`);
+      console.log(`  shows        ${audience.shows.join(", ") || "—"}`);
+      console.log(`  sources      ${audience.sources.join(", ") || "—"}`);
+
+      // A geo audience has no members and no size — its spec IS its detail.
+      // Platform floors do not apply, so the readiness check below is skipped.
+      if (audience.type === "geo") {
+        console.log("");
+        console.log(geo.formatGeoSpec(audience.definition.geo));
+        printRecentHistory(audience);
+        return;
+      }
+
+      console.log("\n  size history");
+      for (const point of audience.sizeHistory) {
+        console.log(`    ${point.at.slice(0, 10)}  ${String(num(point.size)).padStart(9)}  ${point.note || ""}`);
+      }
+
+      if (audience.destinations.length) {
+        console.log("\n  destinations");
+        for (const d of audience.destinations) {
+          console.log(`    ${d.platform.padEnd(14)} ${d.status.padEnd(9)} ${d.notes || ""}`);
+        }
+      }
+
+      const readiness = audiences.checkReadiness(audience);
+      console.log(`\n  readiness (assuming ${Math.round(readiness.matchRateUsed * 100)}% match rate)`);
+      for (const finding of readiness.findings) {
+        console.log(`    ${finding.level.padEnd(8)} ${finding.platform.padEnd(14)} ${finding.message}`);
+      }
+
+      printRecentHistory(audience);
+    },
+  },
+
+  "audience refresh": {
+    summary: "Re-read sizes from HubSpot and log them.",
+    options: { id: { type: "string" }, all: { type: "boolean", default: false }, note: { type: "string", default: "" } },
+    async run({ values }) {
+      if (values.all) {
+        const results = await audiences.refreshAll(values.note || "bulk refresh");
+        for (const result of results) {
+          if (result.error) console.log(`  ! ${result.id}: ${result.error}`);
+          else console.log(`  ${result.id.padEnd(34)} ${num(result.sizeHistory.at(-1)?.size)}`);
+        }
+      } else {
+        require_(values, ["id"]);
+        const audience = await audiences.refreshAudience(values.id, values.note);
+        console.log(`${audience.id} → ${num(audience.sizeHistory.at(-1)?.size)}`);
+      }
+      writeReport();
+    },
+  },
+
+  "audience destination": {
+    summary: "Record where an audience is being used (google-ads, meta, tiktok, linkedin, hubspot-email).",
+    options: {
+      id: { type: "string" },
+      platform: { type: "string" },
+      status: { type: "string", default: "live" },
+      "external-id": { type: "string", default: "" },
+      notes: { type: "string", default: "" },
+    },
+    async run({ values }) {
+      require_(values, ["id", "platform"]);
+      const audience = registry.loadAudience(values.id);
+      if (!audience) throw new Error(`No audience "${values.id}".`);
+      registry.setDestination(audience, {
+        platform: values.platform,
+        status: values.status,
+        externalId: values["external-id"] || null,
+        notes: values.notes,
+      });
+      console.log(`${audience.id}: ${values.platform} is now ${values.status}.`);
+      writeReport();
+    },
+  },
+
+  "audience note": {
+    summary: "Attach a note to an audience so the reason is not lost.",
+    options: { id: { type: "string" }, text: { type: "string" } },
+    async run({ values }) {
+      require_(values, ["id", "text"]);
+      const audience = registry.loadAudience(values.id);
+      if (!audience) throw new Error(`No audience "${values.id}".`);
+      registry.addNote(audience, values.text);
+      console.log("Noted.");
+      writeReport();
+    },
+  },
+
+  "audience retire": {
+    summary: "Mark an audience as no longer in use. Nothing is deleted.",
+    options: { id: { type: "string" }, reason: { type: "string", default: "" } },
+    async run({ values }) {
+      require_(values, ["id"]);
+      const audience = registry.loadAudience(values.id);
+      if (!audience) throw new Error(`No audience "${values.id}".`);
+      registry.retireAudience(audience, values.reason);
+      console.log(`${audience.id} retired.`);
+      writeReport();
+    },
+  },
+
+  "history": {
+    summary: "Print the activity log, newest first.",
+    options: {
+      action: { type: "string" },
+      id: { type: "string" },
+      since: { type: "string" },
+      limit: { type: "string", default: "40" },
+    },
+    async run({ values }) {
+      const entries = registry.readHistory({
+        action: values.action,
+        audienceId: values.id,
+        since: values.since,
+        limit: Number(values.limit),
+      });
+      if (!entries.length) return console.log("Nothing logged yet.");
+      for (const entry of entries) {
+        console.log(
+          `${entry.at.slice(0, 16).replace("T", " ")}  ${String(entry.action).padEnd(28)} ` +
+            `${entry.audienceName || entry.showName || entry.file || ""}`
+        );
+      }
+    },
+  },
+
+  "report": {
+    summary: "Regenerate AUDIENCES.md from the registry.",
+    async run() {
+      const file = writeReport();
+      console.log(`Wrote ${path.relative(process.cwd(), file)}`);
+    },
+  },
+
+  "discover forms": {
+    summary: "List HubSpot forms and recent submissions, to find where tablet sign-ups land.",
+    options: { match: { type: "string", default: "" }, submissions: { type: "boolean", default: false } },
+    async run({ values }) {
+      const forms = await hubspot.listForms();
+      const filtered = values.match
+        ? forms.filter((form) => form.name.toLowerCase().includes(values.match.toLowerCase()))
+        : forms;
+
+      console.log(`${filtered.length} of ${forms.length} forms\n`);
+      for (const form of filtered) {
+        console.log(`${form.name}`);
+        console.log(`  id ${form.id}   created ${(form.createdAt || "").slice(0, 10)}`);
+
+        const fields = [];
+        for (const group of form.fieldGroups || []) {
+          for (const field of group.fields || []) fields.push(field.name);
+        }
+        if (fields.length) console.log(`  fields: ${fields.join(", ")}`);
+
+        if (values.submissions) {
+          const submissions = await hubspot.getFormSubmissions(form.id, 3);
+          console.log(`  ${submissions.length} recent submission(s)`);
+          for (const submission of submissions) {
+            console.log(`    ${new Date(submission.submittedAt).toISOString().slice(0, 10)}`);
+          }
+        }
+        console.log("");
+      }
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Plumbing
+// ---------------------------------------------------------------------------
+
+function splitCsv(value) {
+  return String(value || "").split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+/** Prints the last few log entries for one audience. */
+function printRecentHistory(audience, limit = 10) {
+  const events = registry.readHistory({ audienceId: audience.id, limit });
+  if (!events.length) return;
+  console.log("\n  recent history");
+  for (const event of events) {
+    console.log(`    ${event.at.slice(0, 16).replace("T", " ")}  ${event.action}`);
+  }
+}
+
+/** Throws a readable error when a required flag is missing. */
+function require_(values, names) {
+  const missing = names.filter((name) => !values[name]);
+  if (missing.length) {
+    throw new Error(`Missing required option(s): ${missing.map((n) => "--" + n).join(", ")}`);
+  }
+}
+
+function printHelp() {
+  console.log("tsf — trade show funnel\n");
+  console.log("Usage: tsf <command> [options]\n");
+  const width = Math.max(...Object.keys(COMMANDS).map((name) => name.length));
+  for (const [name, command] of Object.entries(COMMANDS)) {
+    console.log(`  ${name.padEnd(width + 2)}${command.summary}`);
+  }
+  console.log("\nStart here:");
+  console.log("  tsf setup --commit");
+  console.log("  tsf show add --name \"SEMA 2026\" --start 2026-11-03 --end 2026-11-06");
+  console.log("  tsf import --file roster.csv --show sema-2026 --source roster_pre");
+  console.log("  tsf audience create --name \"SEMA 2026 — All\" --shows sema-2026 --commit");
+  console.log("  tsf report\n");
+}
+
+async function main() {
+  ensureDataDirs();
+  const argv = process.argv.slice(2);
+  if (!argv.length || argv[0] === "help" || argv[0] === "--help" || argv[0] === "-h") {
+    printHelp();
+    return;
+  }
+
+  // Commands are one or two words. Try the longer match first.
+  const twoWord = argv.slice(0, 2).join(" ");
+  const name = COMMANDS[twoWord] ? twoWord : argv[0];
+  const command = COMMANDS[name];
+
+  if (!command) {
+    console.error(`Unknown command "${argv.join(" ")}".\n`);
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+
+  const rest = argv.slice(name.split(" ").length);
+  const { values, positionals } = parseArgs({
+    args: rest,
+    options: command.options || {},
+    allowPositionals: true,
+  });
+
+  await command.run({ values, positionals });
+}
+
+main().catch((error) => {
+  console.error(`\n${error.message}\n`);
+  process.exitCode = 1;
+});

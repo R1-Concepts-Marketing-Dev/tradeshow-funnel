@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.local
+# Ingest working files may contain personal data — never commit them.
+inbox/
+out/
+*.rejects.csv
