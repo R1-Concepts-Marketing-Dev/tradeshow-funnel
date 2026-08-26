@@ -299,6 +299,10 @@ const TOOLS = [
         } else if (e.action === "audience.refreshed") {
           const d = e.delta === null || e.delta === undefined ? "" : ` (${e.delta >= 0 ? "+" : ""}${num(e.delta)})`;
           detail = `${e.audienceName} now ${num(e.size)}${d}`;
+        } else if (e.action === "audience.exported") {
+          detail = `${e.audienceName} → ${e.platform}: ${num(e.rows)} rows${
+            e.clearsMinimum ? "" : " (below the platform minimum)"
+          }`;
         } else if (e.action === "audience.destination_set") {
           detail = `${e.audienceName} → ${e.platform} is ${e.status}`;
         } else if (e.action === "show.created") {
@@ -308,6 +312,10 @@ const TOOLS = [
         } else {
           detail = JSON.stringify(e).slice(0, 140);
         }
+        // A test run must never be readable as a real one. Anyone querying this
+        // is asking what actually happened.
+        if (e.testMode) detail = `**TEST RUN, did not really happen** — ${detail}`;
+
         out.push(`| ${e.at.replace("T", " ").slice(0, 16)} | ${e.actor} | \`${e.action}\` | ${detail} |`);
       }
       return out.join("\n");

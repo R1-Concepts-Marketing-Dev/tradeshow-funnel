@@ -27,6 +27,7 @@
 import * as hubspot from "./hubspot.js";
 import { ACTIONS, record, readHistory } from "./registry.js";
 import { splitList } from "./merge.js";
+import { loadConfig } from "./config.js";
 
 /** Finds the log entry for a batch, so we can say what it did before undoing it. */
 export function findBatch(batchId) {
@@ -104,11 +105,18 @@ export async function reverseBatch(batchId, { commit = false } = {}) {
     found: found.length,
     willUpdate: updates.length,
     committed: false,
+    testMode: false,
     // Said out loud every time, because it is the part people assume otherwise.
     caveat:
       "This un-stamps the show and marks the contacts. It does not delete them, " +
       "and it cannot restore field values that the import overwrote.",
   };
+
+  if (commit && loadConfig().testMode) {
+    summary.testMode = true;
+    summary.wouldHaveWritten = updates.length;
+    return { summary, updates };
+  }
 
   if (!commit) return { summary, updates };
 

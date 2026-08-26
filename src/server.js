@@ -67,6 +67,9 @@ const ROUTES = {
       headersUnverified: Boolean(p.headersUnverified),
     })),
     campaignTypes: campaigns.CAMPAIGN_TYPES,
+    // Shown as a permanent banner. Someone using a shared link has no other
+    // way to know whether what they are about to press is real.
+    testMode: loadConfig().testMode,
   }),
 
   /** Who is signed in, for the header. */
@@ -346,7 +349,12 @@ const ROUTES = {
         created: Math.max(0, done.reduce((n, r) => n + r.summary.created, 0) - acrossFiles),
         updated: done.reduce((n, r) => n + r.summary.updated, 0),
         rejected: done.reduce((n, r) => n + r.summary.rejected, 0),
-        committed: Boolean(body.commit),
+        // `committed` must mean "this reached HubSpot". In test mode the
+        // request asked to commit and nothing was written, so reporting the
+        // request rather than the outcome would make a dry run look like a
+        // real one — the single most misleading thing this screen could say.
+        testMode: done.some((r) => r.summary.testMode),
+        committed: Boolean(body.commit) && !done.some((r) => r.summary.testMode),
       },
     };
   },

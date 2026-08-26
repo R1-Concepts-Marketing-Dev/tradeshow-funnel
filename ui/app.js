@@ -827,7 +827,12 @@ function renderPreview(result) {
   const t = result.totals;
   const out = $("#preview-out");
 
-  const banner = t.committed
+  const banner = t.testMode
+    ? `<div class="notice warn"><b>Test mode — nothing was written.</b> ${fmt(
+        t.contacts
+      )} contact(s) would have gone to HubSpot across ${fmt(t.files)} file(s).
+       Every number below is real; only the write was skipped.</div>`
+    : t.committed
     ? `<div class="notice good"><b>Committed.</b> ${fmt(t.created)} contacts created and ${fmt(
         t.updated
       )} updated in HubSpot across ${fmt(t.files)} file(s).</div>`
@@ -1268,6 +1273,7 @@ function renderHistory() {
           return `<li>
             <span class="when">${esc(entry.at.replace("T", " ").slice(0, 16))}</span>
             <span class="act">${esc(entry.action)}</span>
+            ${entry.testMode ? '<span class="chip thin">test</span>' : ""}
             <span>${describe ? describe(entry) : esc(JSON.stringify(entry).slice(0, 160))}</span>
           </li>`;
         })
@@ -1280,6 +1286,18 @@ function renderHistory() {
 // ---------------------------------------------------------------------------
 
 function render() {
+  // Before anything else: if writes are off, the person needs to know that
+  // before they read a single number, not after they press Commit.
+  const testing = Boolean(state.testMode);
+  $("#testbar").hidden = !testing;
+  document.body.classList.toggle("is-testing", testing);
+
+  const commit = $("#btn-commit");
+  if (commit) {
+    commit.textContent = testing ? "Commit (blocked in test mode)" : "Commit to HubSpot";
+    commit.classList.toggle("btn-testing", testing);
+  }
+
   applyBrandTheme();
   renderBrandSwitch();
   $$(".view").forEach((section) => (section.hidden = section.dataset.view !== state.view));

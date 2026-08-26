@@ -17,7 +17,7 @@ import { readTable, readTableFile } from "./readfile.js";
 import * as hubspot from "./hubspot.js";
 import { normalizeRow } from "./normalize.js";
 import { groupContacts, mergeGroup } from "./merge.js";
-import { PATHS } from "./config.js";
+import { PATHS, loadConfig } from "./config.js";
 import { ACTIONS, record, loadShows } from "./registry.js";
 import { requireBrand } from "./brands.js";
 
@@ -331,7 +331,18 @@ export async function ingestFile({
     updated: toWrite.filter((record_) => !record_.isNew).length,
     mergedWithinFile: toWrite.reduce((total, r) => total + (r.mergedFrom - 1), 0),
     committed: false,
+    testMode: false,
   };
+
+  // In test mode a commit becomes a preview. The guard in src/hubspot.js
+  // would refuse the write anyway, but throwing reads as a failure, and this
+  // is not a failure — it is the mode doing its job. Everything above ran
+  // for real, so the counts are exactly what a real run would produce.
+  if (commit && loadConfig().testMode) {
+    summary.testMode = true;
+    summary.wouldHaveWritten = toWrite.length;
+    return { summary, toWrite, rejects, review, mapping };
+  }
 
   if (!commit) {
     return { summary, toWrite, rejects, review, mapping };

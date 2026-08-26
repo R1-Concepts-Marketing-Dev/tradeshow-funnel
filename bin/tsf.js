@@ -185,7 +185,12 @@ const COMMANDS = {
       console.log(`    will un-stamp     ${num(summary.willUpdate)}`);
       console.log(`\n  ${summary.caveat}`);
 
-      if (!summary.committed) {
+      if (summary.testMode) {
+        console.log(
+          "\n  TEST MODE — nothing was changed.\n" +
+            `  ${num(summary.wouldHaveWritten)} contact(s) would have been un-stamped.\n`
+        );
+      } else if (!summary.committed) {
         console.log("\n  Nothing was changed. Re-run with --commit.\n");
       } else {
         console.log("\n  Done. Refresh your audiences: tsf audience refresh --all\n");
@@ -299,6 +304,11 @@ const COMMANDS = {
         passphrase: "shared passphrase — fine for a tunnel, see docs/SHARING.md",
         none: "none — local use only, which is the default",
       }[authMode()];
+      console.log(
+        config.testMode
+          ? "  Test mode  ON — reads are real, every write is refused"
+          : "  Test mode  off — writes go to the live HubSpot portal"
+      );
       console.log(`  Sign-in    ${gate}`);
 
       const { findCloudflared } = await import("../src/tunnel.js");
@@ -765,7 +775,14 @@ const COMMANDS = {
         console.log(`\n  Saved column mapping as profile "${values["save-profile"]}".`);
       }
 
-      if (!s.committed) {
+      if (s.testMode) {
+        console.log(
+          "\n  TEST MODE — this was a full dry run.\n" +
+            `  ${num(s.wouldHaveWritten)} contact(s) would have been written to HubSpot.\n` +
+            "  Every number above is real. Nothing was sent.\n\n" +
+            "  Set TSF_TEST_MODE=false in .env when you are ready to commit."
+        );
+      } else if (!s.committed) {
         console.log("\nNothing was written. Re-run with --commit when the preview looks right.");
       } else {
         console.log("\nCommitted. Refresh your audiences next: tsf audience refresh --all");
@@ -1239,7 +1256,24 @@ function printHelp() {
 
 async function main() {
   ensureDataDirs();
-  const argv = process.argv.slice(2);
+  let argv = process.argv.slice(2);
+
+  // `--test` is global rather than per-command, and is stripped before the
+  // command parses its own options. Set on process.env so it reaches
+  // loadConfig() the same way the .env setting does — one code path, not two.
+  if (argv.includes("--test")) {
+    argv = argv.filter((argument) => argument !== "--test");
+    process.env.TSF_TEST_MODE = "true";
+  }
+
+  const { loadConfig } = await import("../src/config.js");
+  if (loadConfig().testMode) {
+    console.log(
+      "\n  TEST MODE — reads are real, writes are refused." +
+        "\n  Nothing can reach HubSpot, and nothing can be published.\n"
+    );
+  }
+
   if (!argv.length || argv[0] === "help" || argv[0] === "--help" || argv[0] === "-h") {
     printHelp();
     return;

@@ -551,3 +551,32 @@ table.grid.compact td, table.grid.compact th { padding: 7px 12px; }
   font-family: var(--mono); font-size: 10.5px; word-break: break-all;
   margin-top: 8px;
 }
+
+/* --- Test mode ------------------------------------------------------------
+   Deliberately loud and deliberately not dismissible. The cost of someone
+   thinking they committed when they did not is a whole afternoon. */
+
+.testbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 20px;
+  background: var(--warn-wash);
+  border-bottom: 2px solid var(--warn);
+  color: var(--warn);
+  font-size: 12.5px;
+}
+.testbar b {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase;
+  background: var(--warn); color: #fff;
+  padding: 3px 8px; border-radius: 100px;
+}
+.testbar span { color: var(--text); opacity: .85; }
+
+/* The commit button must not look like the thing that writes to HubSpot. */
+.btn.btn-testing,
+.btn.btn-testing:hover {
+  background: var(--surface-2);
+  border-color: var(--line-2);
+  color: var(--muted);
+  cursor: not-allowed;
+}

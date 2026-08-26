@@ -26,6 +26,7 @@ import { normalizeRow } from "./normalize.js";
 import { groupContacts, mergeGroup } from "./merge.js";
 import { requireBrand } from "./brands.js";
 import { ACTIONS, record } from "./registry.js";
+import { loadConfig } from "./config.js";
 
 /**
  * How far either side of the show to accept a submission.
@@ -196,7 +197,14 @@ export async function claimTabletContacts({
     rejected: rejects.length,
     needsReview: review.length,
     committed: false,
+    testMode: false,
   };
+
+  if (commit && loadConfig().testMode) {
+    summary.testMode = true;
+    summary.wouldHaveWritten = toWrite.length;
+    return { summary, toWrite, rejects, review };
+  }
 
   if (!commit) return { summary, toWrite, rejects, review };
 

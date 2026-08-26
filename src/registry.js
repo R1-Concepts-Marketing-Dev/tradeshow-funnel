@@ -78,9 +78,15 @@ function historyFileFor(isoTimestamp) {
 export function record(action, details = {}) {
   ensureDataDirs();
   const at = new Date().toISOString();
-  const { actor } = loadConfig();
+  const { actor, testMode } = loadConfig();
 
+  // Test-mode entries are stamped rather than suppressed. The registry has to
+  // be able to explain itself a year later, and a log that quietly omits a run
+  // is as misleading as one that claims a test was operational. Anything
+  // reading history should treat `testMode: true` as "this did not really
+  // happen outside this machine".
   const entry = { at, actor, action, ...details };
+  if (testMode) entry.testMode = true;
   fs.appendFileSync(historyFileFor(at), JSON.stringify(entry) + "\n", "utf8");
   return entry;
 }

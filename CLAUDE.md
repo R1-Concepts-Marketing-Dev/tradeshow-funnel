@@ -69,6 +69,17 @@ which platform and how big it was stays answerable.
 
 A geo audience cannot be exported — it has no people in it. That is not a
 bug to fix; say so and point at the radius and dates instead.
+## Test mode
+
+When `TSF_TEST_MODE` is on, reads work normally and every write outside this
+machine is refused — HubSpot mutations and publishing to GitHub. Local
+registry writes still happen and are stamped `testMode: true`.
+
+**A history entry with `testMode: true` did not really happen.** Never count
+one as an operational event, never sum its numbers into a real total, and say
+so plainly if someone asks about a run that turns out to have been a test.
+
+See `docs/TEST-MODE.md`.
 ## Brands come first
 
 Every audience belongs to **one** brand: `r1` (R1 Concepts) or `dfc` (Dynamic

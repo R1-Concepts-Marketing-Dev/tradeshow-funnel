@@ -147,6 +147,13 @@ export function loadConfig() {
     // retyped and not in shell history; .env is gitignored.
     publishPassphrase: merged.TSF_PUBLISH_PASSPHRASE || "",
 
+    // TEST MODE — nothing this tool does can change a system outside this
+    // machine. Reads still work, so previews, reports and exports behave
+    // exactly as they will in earnest; writes are refused at the lowest
+    // level rather than at each call site. See src/hubspot.js.
+    //
+    // Set TSF_TEST_MODE=true in .env, or pass --test to any command.
+    testMode: /^(1|true|yes|on)$/i.test(String(merged.TSF_TEST_MODE || "")),
     // Stamped onto every history entry so we can tell who ran what. When people
     // are signed in, the signed-in email wins over this.
     actor: merged.TSF_ACTOR || merged.USERNAME || merged.USER || "unknown",

@@ -54,11 +54,50 @@ async function getToken() {
 }
 
 /**
+ * HubSpot endpoints that are POSTs but change nothing. Searching and batch
+ * reading both take a body, so blocking test-mode writes by HTTP method
+ * alone would break every preview and every export.
+ *
+ * This is an allowlist, not a denylist, and that is deliberate: a new
+ * endpoint is refused in test mode until someone has looked at it and said
+ * it is a read. Getting that wrong the other way writes to the live portal.
+ */
+// Each pattern must match the WHOLE path, allowing only a query string after
+// it. `\b` is not good enough: it treats a hyphen as a boundary, so
+// "/crm/v3/lists/search-index/rebuild" matched the search pattern and would
+// have been allowed through as a read. A test caught it; the anchor prevents it.
+const READ_ONLY_POSTS = [
+  /^\/crm\/v3\/objects\/[a-z]+\/search(?:\?.*)?$/,
+  /^\/crm\/v3\/objects\/[a-z]+\/batch\/read(?:\?.*)?$/,
+  /^\/crm\/v3\/lists\/search(?:\?.*)?$/,
+];
+
+/** True when this call would change something in the portal. */
+export function isWrite(method, path) {
+  if (method === "GET") return false;
+  if (method !== "POST") return true;
+  return !READ_ONLY_POSTS.some((pattern) => pattern.test(path));
+}
+/**
  * One HTTP call to HubSpot, with retries on the errors that are worth retrying
  * (429 rate limit and 5xx). Anything else throws immediately with the message
  * HubSpot gave us, because guessing at a fix is worse than stopping.
  */
 async function request(method, path, body, { retries = 4 } = {}) {
+  // The guard sits HERE rather than at each call site so that a function
+  // added later cannot forget it. Test mode has to be a property of the
+  // tool, not a discipline.
+  if (isWrite(method, path) && loadConfig().testMode) {
+    throw new Error(
+      `Test mode is on, so this was not sent to HubSpot:\n` +
+        `  ${method} ${path}\n\n` +
+        `Everything up to this point ran for real — the file was read, contacts\n` +
+        `were merged and counted, and the preview is accurate. Only the write\n` +
+        `was refused.\n\n` +
+        `Turn it off in .env (TSF_TEST_MODE=false) when you are ready.`
+    );
+  }
+
   const token = await getToken();
 
   for (let attempt = 0; attempt <= retries; attempt++) {

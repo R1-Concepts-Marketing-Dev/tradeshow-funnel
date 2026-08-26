@@ -186,6 +186,16 @@ export function deploy(file, { branch = "gh-pages", remote = "origin" } = {}) {
   const git = (args, cwd = ROOT) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
+  // Deploying pushes a branch to GitHub, which is as much 'leaving this
+  // machine' as a HubSpot write is.
+  if (loadConfig().testMode) {
+    throw new Error(
+      "Test mode is on, so nothing was deployed.\n\n" +
+        "The page was still built and encrypted locally, so you can open the\n" +
+        "file and check it. Only the push to GitHub was refused.\n\n" +
+        "Turn it off in .env (TSF_TEST_MODE=false) when you are ready."
+    );
+  }
   const worktree = path.join(ROOT, ".gh-pages-tmp");
   fs.rmSync(worktree, { recursive: true, force: true });
 
