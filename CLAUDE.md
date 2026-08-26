@@ -75,9 +75,13 @@ When `TSF_TEST_MODE` is on, reads work normally and every write outside this
 machine is refused — HubSpot mutations and publishing to GitHub. Local
 registry writes still happen and are stamped `testMode: true`.
 
-**A history entry with `testMode: true` did not really happen.** Never count
-one as an operational event, never sum its numbers into a real total, and say
-so plainly if someone asks about a run that turns out to have been a test.
+**Anything carrying `testMode: true` did not really happen.** That flag appears
+on history entries, on audience destinations, and on shows. Never count one as
+an operational event, never sum its numbers into a real total, and say so
+plainly if someone asks about a run that turns out to have been a test.
+
+In `AUDIENCES.md` these are marked `[TEST]`. If you are summarising activity for
+someone, exclude them or label them — never silently fold them in.
 
 See `docs/TEST-MODE.md`.
 ## Brands come first

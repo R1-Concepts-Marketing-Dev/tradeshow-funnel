@@ -34,9 +34,35 @@ Reads stay on because a preview that cannot read HubSpot is worthless — it
 could not tell you which contacts already exist, so "3 created, 0 updated"
 would be a guess. In test mode those numbers are real.
 
-The local registry still records what you did, stamped `testMode: true`. It is
-not hidden from history, because a log that silently omits runs is as
-misleading as one that claims a test was operational.
+## The bargain: local writes are fine, as long as they are visibly a test
+
+The local registry still records what you did. Nothing is hidden — a log that
+silently omits runs misleads as badly as one that claims a test was real. The
+deal is that a test run is **marked everywhere it can be seen**:
+
+| Where | How it shows |
+|---|---|
+| `data/history/*.jsonl` | `"testMode": true` on the entry |
+| `AUDIENCES.md` activity table | `**[TEST — did not really happen]**` |
+| `AUDIENCES.md` shows table | `**[TEST]**` after the show name |
+| `AUDIENCES.md` destinations | `**[TEST]**` after the status |
+| `tsf history` | `[TEST]` at the end of the line |
+| Web UI history feed | a `test` chip |
+| Web UI audience table and drawer | `platform · test` chip |
+| Web UI show cards | a `test` chip |
+| Published team page | `[TEST — did not really happen]` |
+| MCP, when Claude is asked | `**TEST RUN, did not really happen** —` |
+
+Two of those exist because writing the tests found them missing: the shows
+table listed a test show as ordinary, and the summary table showed a test
+destination as a plain `meta (live)`. Both would have been read as fact.
+
+`test/testMode.test.js` asserts the marking, including that a **real** run
+carries no marker — a test that only checked the test-mode side would pass
+while marking everything.
+
+Long-lived state carries the stamp too, not just the log entry. A destination
+or a show is still on screen months after the history has scrolled away.
 
 ## Where the guard actually lives
 

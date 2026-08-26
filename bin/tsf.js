@@ -1143,7 +1143,8 @@ const COMMANDS = {
       for (const entry of entries) {
         console.log(
           `${entry.at.slice(0, 16).replace("T", " ")}  ${String(entry.action).padEnd(28)} ` +
-            `${entry.audienceName || entry.showName || entry.file || ""}`
+            `${entry.audienceName || entry.showName || entry.file || ""}` +
+            `${entry.testMode ? "   [TEST]" : ""}`
         );
       }
     },

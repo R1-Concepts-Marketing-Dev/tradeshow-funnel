@@ -148,6 +148,10 @@ export function buildPayload() {
       rejected: e.rejected ?? null,
       platform: e.platform || null,
       status: e.status || null,
+      // Carried through deliberately. Publishing is refused while test mode is
+      // on, but entries logged during a test are still in the log afterwards —
+      // without this they would appear on the team page as real events.
+      testMode: e.testMode || false,
       text: e.text || null,
     })),
   };
@@ -495,7 +499,9 @@ function render(){
     '<th>When</th><th>What</th><th>Detail</th></tr></thead><tbody>' +
     (hist.length ? hist.map(e =>
       '<tr><td class="mono">'+esc(e.at.replace("T"," ").slice(0,16))+'</td>' +
-      '<td class="mono">'+esc(e.action)+'</td><td>'+esc(describe(e))+'</td></tr>').join("")
+      '<td class="mono">'+esc(e.action)+'</td><td>' +
+      (e.testMode ? '<b>[TEST — did not really happen]</b> ' : '') +
+      esc(describe(e))+'</td></tr>').join("")
       : '<tr><td colspan="3" class="muted" style="text-align:center;padding:22px">Nothing yet.</td></tr>') +
     '</tbody></table></div></div>';
 

@@ -196,7 +196,14 @@ function renderAudiences() {
         ? `${spec?.window?.runStart ?? ""} → ${spec?.window?.runEnd ?? ""}`
         : audience.sizeHistory.slice(-4).map((p) => fmt(p.size)).join(" → ") || "—";
       const destinations = audience.destinations.length
-        ? audience.destinations.map((d) => `<span class="chip">${esc(d.platform)}</span>`).join("")
+        ? audience.destinations
+            .map(
+              (d) =>
+                `<span class="chip${d.testMode ? " thin" : ""}">${esc(d.platform)}${
+                  d.testMode ? " · test" : ""
+                }</span>`
+            )
+            .join("")
         : '<span class="hint">not set</span>';
 
       return `<tr class="clickable" data-id="${esc(audience.id)}">
@@ -398,9 +405,11 @@ function openDrawer(id) {
           ? `<table class="grid compact"><thead><tr><th>Platform</th><th>Status</th><th>Notes</th></tr></thead><tbody>${audience.destinations
               .map(
                 (d) =>
-                  `<tr><td>${esc(d.platform)}</td><td><span class="chip">${esc(
-                    d.status
-                  )}</span></td><td>${esc(d.notes || "")}</td></tr>`
+                  `<tr><td>${esc(d.platform)}</td><td><span class="chip${
+                    d.testMode ? " thin" : ""
+                  }">${esc(d.status)}${d.testMode ? " · test" : ""}</span></td><td>${esc(
+                    d.notes || ""
+                  )}</td></tr>`
               )
               .join("")}</tbody></table>`
           : '<p class="hint">Not recorded anywhere yet.</p>'
@@ -1160,7 +1169,7 @@ function showCard(show) {
 
   return `<div class="show-card">
     <div class="head">
-      <h3>${esc(show.name)}</h3>
+      <h3>${esc(show.name)}${show.testMode ? ' <span class="chip thin">test</span>' : ""}</h3>
       <span class="dates">${esc(show.startDate)} → ${esc(show.endDate)}</span>
       ${brandChips}
       <div class="topbar-spacer"></div>

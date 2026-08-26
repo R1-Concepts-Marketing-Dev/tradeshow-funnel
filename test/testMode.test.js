@@ -44,3 +44,129 @@ test("a write path that merely contains the word search is still a write", () =>
   // "/lists/search" reads; "/lists/search-index/rebuild" would not.
   assert.equal(isWrite("POST", "/crm/v3/lists/search-index/rebuild"), true);
 });
+
+// ---------------------------------------------------------------------------
+// Transparency
+//
+// Local writes are allowed in test mode. The deal is that they are always
+// visibly a test. These lock that half of the bargain — every surface that
+// shows registry data must mark a test entry.
+// ---------------------------------------------------------------------------
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+
+/** Runs a tsf command against a throwaway registry. */
+function tsf(args, { testMode = false, dataDir } = {}) {
+  return execFileSync(process.execPath, [path.join(ROOT, "bin", "tsf.js"), ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      TSF_DATA_DIR: dataDir,
+      TSF_TEST_MODE: testMode ? "true" : "false",
+      TSF_ACTOR: "test-runner",
+    },
+  });
+}
+
+function scratchRegistry() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tsf-test-"));
+  fs.mkdirSync(path.join(dir, "history"), { recursive: true });
+  fs.mkdirSync(path.join(dir, "audiences"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "shows.json"), "[]");
+  return dir;
+}
+
+test("a test-mode entry is stamped and a real one is not", () => {
+  const dir = scratchRegistry();
+  try {
+    tsf(["show", "add", "--name", "Probe A", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: true,
+      dataDir: dir,
+    });
+    tsf(["show", "add", "--name", "Probe B", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: false,
+      dataDir: dir,
+    });
+
+    const log = fs
+      .readdirSync(path.join(dir, "history"))
+      .flatMap((f) => fs.readFileSync(path.join(dir, "history", f), "utf8").split("\n"))
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+
+    const a = log.find((e) => e.showName === "Probe A");
+    const b = log.find((e) => e.showName === "Probe B");
+
+    assert.equal(a.testMode, true, "the test run must be stamped");
+    assert.equal(b.testMode, undefined, "a real run must carry no stamp at all");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("`tsf history` marks the test entry and only the test entry", () => {
+  const dir = scratchRegistry();
+  try {
+    tsf(["show", "add", "--name", "Probe A", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: true,
+      dataDir: dir,
+    });
+    tsf(["show", "add", "--name", "Probe B", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: false,
+      dataDir: dir,
+    });
+
+    const out = tsf(["history"], { dataDir: dir });
+    const lines = out.split("\n").filter((l) => l.includes("Probe"));
+
+    assert.ok(
+      lines.find((l) => l.includes("Probe A")).includes("[TEST]"),
+      "the test run must be marked"
+    );
+    assert.ok(
+      !lines.find((l) => l.includes("Probe B")).includes("[TEST]"),
+      "a real run must not be marked"
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("AUDIENCES.md marks a test run everywhere it appears", () => {
+  const dir = scratchRegistry();
+  try {
+    tsf(["show", "add", "--name", "Probe A", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: true,
+      dataDir: dir,
+    });
+    tsf(["show", "add", "--name", "Probe B", "--start", "2026-01-01", "--end", "2026-01-02"], {
+      testMode: false,
+      dataDir: dir,
+    });
+    tsf(["report"], { dataDir: dir });
+
+    const report = fs.readFileSync(path.join(dir, "AUDIENCES.md"), "utf8");
+    const lines = report.split("\n");
+
+    // "Probe A" appears twice — the shows table and the activity log. Checking
+    // only the first would have passed while the other row lied, which is
+    // exactly what happened when this test was first written.
+    const testRows = lines.filter((l) => l.includes("Probe A"));
+    assert.ok(testRows.length >= 2, "expected both the show row and the activity row");
+    for (const row of testRows) {
+      assert.match(row, /\[TEST/, `not marked as a test: ${row.trim()}`);
+    }
+
+    // And the contrast: a real run must carry no marker anywhere.
+    for (const row of lines.filter((l) => l.includes("Probe B"))) {
+      assert.doesNotMatch(row, /\[TEST/, `wrongly marked as a test: ${row.trim()}`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

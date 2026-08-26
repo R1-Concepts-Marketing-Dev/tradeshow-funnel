@@ -249,10 +249,15 @@ export function setDestination(audience, { platform, status, externalId = null, 
   const at = new Date().toISOString();
   const existing = audience.destinations.find((d) => d.platform === platform);
 
+  // Stamped on the record itself, not just the history entry. A destination is
+  // long-lived state — someone reading it in six months has no idea which run
+  // created it unless it says so there.
+  const { testMode } = loadConfig();
+
   if (existing) {
-    Object.assign(existing, { status, externalId, notes, updatedAt: at });
+    Object.assign(existing, { status, externalId, notes, updatedAt: at, testMode });
   } else {
-    audience.destinations.push({ platform, status, externalId, notes, updatedAt: at });
+    audience.destinations.push({ platform, status, externalId, notes, updatedAt: at, testMode });
   }
 
   saveAudience(audience);
@@ -316,6 +321,10 @@ export function addShow({ id, name, startDate, endDate, city = "", notes = "", b
     endDate,
     city,
     notes,
+    // A show registered during a test is real, inert, local data — but it
+    // would otherwise sit in the shows list indistinguishable from one added
+    // for a show we are actually attending. Stamped so listings can say so.
+    ...(loadConfig().testMode ? { testMode: true } : {}),
     // Which brands exhibit at this show. A show can serve one or both — SEMA
     // might carry both booths, a police expo only DFC.
     brands,

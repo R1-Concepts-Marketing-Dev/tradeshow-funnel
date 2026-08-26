@@ -68,8 +68,12 @@ export function buildReport() {
       const latest = audience.sizeHistory.at(-1);
       const isGeo = audience.type === "geo";
       const geoSpec = audience.definition?.geo;
+      // The summary table is what gets scanned. A test destination shown here
+      // as a plain "meta (live)" is read as fact and never questioned.
       const destinations = audience.destinations.length
-        ? audience.destinations.map((d) => `${d.platform} (${d.status})`).join(", ")
+        ? audience.destinations
+            .map((d) => `${d.platform} (${d.status})${d.testMode ? " **[TEST]**" : ""}`)
+            .join(", ")
         : "—";
       const flag = audience.status === "active" ? "" : " _(retired)_";
       lines.push(
@@ -145,7 +149,9 @@ export function buildReport() {
         lines.push("| --- | --- | --- | --- | --- |");
         for (const destination of audience.destinations) {
           lines.push(
-            `| ${destination.platform} | ${destination.status} | ${destination.externalId || "—"} ` +
+            `| ${destination.platform} | ${destination.status}${
+              destination.testMode ? " **[TEST]**" : ""
+            } | ${destination.externalId || "—"} ` +
               `| ${destination.notes || ""} | ${day(destination.updatedAt)} |`
           );
         }
@@ -190,7 +196,7 @@ export function buildReport() {
         ? `${show.venue.name} — ${show.venue.lat}, ${show.venue.lng}`
         : `_not researched — run \`tsf show research --id ${show.id}\`_`;
       lines.push(
-        `| ${show.name} | \`${show.id}\` | ${show.startDate} → ${show.endDate} ` +
+        `| ${show.name}${show.testMode ? " **[TEST]**" : ""} | \`${show.id}\` | ${show.startDate} → ${show.endDate} ` +
           `| ${venue} | ${show.formIds?.join(", ") || "_none linked_"} |`
       );
     }
@@ -202,7 +208,8 @@ export function buildReport() {
   lines.push("");
   lines.push(
     "Newest first. The full log lives in `data/history/*.jsonl` — this is the " +
-      "last 60 entries."
+      "last 60 entries. Rows marked **[TEST]** were run with test mode on: they " +
+      "changed nothing outside this machine and must not be counted as real."
   );
   lines.push("");
   if (!history.length) {
@@ -211,9 +218,16 @@ export function buildReport() {
     lines.push("| When | Who | What | Detail |");
     lines.push("| --- | --- | --- | --- |");
     for (const entry of history) {
+      // A test run has to be unmistakable in the artifact people actually read.
+      // It is not hidden — a log that omits runs misleads too — but it must
+      // never be mistakable for something that really happened.
+      const detail = entry.testMode
+        ? `**[TEST — did not really happen]** ${describeEntry(entry)}`
+        : describeEntry(entry);
+
       lines.push(
         `| ${entry.at.replace("T", " ").slice(0, 16)} | ${entry.actor} ` +
-          `| \`${entry.action}\` | ${describeEntry(entry)} |`
+          `| \`${entry.action}\` | ${detail} |`
       );
     }
   }
