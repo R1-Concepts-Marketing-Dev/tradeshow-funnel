@@ -875,7 +875,14 @@ const COMMANDS = {
           console.log(`  name     ${name}`);
           console.log(`  shows    ${shows.join(", ") || "(any)"}`);
           console.log(`  sources  ${sources.join(", ") || "(any)"}`);
-          console.log("\nNothing was created. Re-run with --commit.");
+          console.log(
+            result.testMode
+              ? "\n  TEST MODE — nothing was created.\n" +
+                  "  A list audience IS a HubSpot list, so unlike an import there is no\n" +
+                  "  local-only half of this to run. Turn test mode off in .env when you\n" +
+                  "  are ready, then re-run this exact command."
+              : "\nNothing was created. Re-run with --commit."
+          );
         } else {
           const size = result.sizeHistory.at(-1)?.size ?? 0;
           console.log(`Created list audience \`${result.id}\` (HubSpot list ${result.hubspotListId}), size ${num(size)}.`);

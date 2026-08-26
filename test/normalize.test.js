@@ -77,3 +77,18 @@ test("normalizeRow keeps a row that has only a phone", () => {
   assert.equal(result.contact.phone, "+15558887777");
   assert.equal(result.contact.firstName, "Cathy");
 });
+
+test("initials keep their capitals", () => {
+  // Found on a real Police Fleet Expo roster: "J.M. Short" was being written
+  // into HubSpot as "J.m. Short", which is how it would have appeared in every
+  // email sent to him.
+  assert.equal(normalizeName("J.M. Short"), "J.M. Short");
+  assert.equal(normalizeName("j.m. short"), "J.M. Short");
+  assert.equal(normalizeName("A.J."), "A.J.");
+});
+
+test("the existing boundary rules still hold", () => {
+  assert.equal(normalizeName("o'brien"), "O'Brien");
+  assert.equal(normalizeName("JEAN-LUC"), "Jean-Luc");
+  assert.equal(normalizeName("  mary   jo  "), "Mary Jo");
+});

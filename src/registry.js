@@ -156,10 +156,14 @@ export function newAudience({
   hubspotListId = null,
 }) {
   const at = new Date().toISOString();
-  const { actor } = loadConfig();
+  const { actor, testMode } = loadConfig();
   return {
     id,
     name,
+
+    // Same reasoning as shows and destinations: an audience built during a
+    // test sits in the list looking exactly like a real one unless it says so.
+    ...(testMode ? { testMode: true } : {}),
 
     // Which business this audience belongs to. Required — R1 and DFC keep
     // separate audiences and must never be mixed. See src/brands.js.

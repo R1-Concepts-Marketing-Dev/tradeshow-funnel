@@ -15,6 +15,7 @@
 import * as hubspot from "./hubspot.js";
 import { buildGeoSpec } from "./geo.js";
 import { requireBrand } from "./brands.js";
+import { loadConfig } from "./config.js";
 import {
   ACTIONS,
   loadAudience,
@@ -142,6 +143,14 @@ export async function createAudience({
 
   if (dryRun) {
     return { dryRun: true, id, name, listName, brand: brand.id, definition };
+  }
+
+  // A list audience IS a HubSpot list — there is no local-only version of it,
+  // so unlike an import this cannot half-run. Degrade to the dry run and say
+  // so, rather than letting the low-level guard throw. The guard still stands
+  // behind this as the backstop.
+  if (loadConfig().testMode) {
+    return { dryRun: true, testMode: true, id, name, listName, brand: brand.id, definition };
   }
 
   // DYNAMIC means HubSpot keeps membership up to date as contacts change,

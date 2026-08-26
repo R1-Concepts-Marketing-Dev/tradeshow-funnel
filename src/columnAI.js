@@ -307,10 +307,12 @@ export async function suggestMapping(table, { filename = "upload.csv" } = {}) {
 
   const mapping = toMapping(call.input.mapping, table.headers);
 
-  const splitFullName =
-    call.input.splitFullName && known.has(call.input.splitFullName)
-      ? call.input.splitFullName
-      : null;
+  // Same rule as the mapping: a header Claude names has to actually be in the
+  // file. This is checked separately because splitFullName is not part of the
+  // mapping list.
+  const splitFullName = table.headers.includes(call.input.splitFullName)
+    ? call.input.splitFullName
+    : null;
 
   return {
     mapping,

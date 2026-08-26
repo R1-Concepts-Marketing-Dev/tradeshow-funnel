@@ -64,7 +64,11 @@ export function normalizeName(raw) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase()
-    .replace(/(^|[\s'\-])([a-z])/g, (_, boundary, letter) => boundary + letter.toUpperCase());
+    // Capitalise after a start, a space, an apostrophe, a hyphen — and after a
+    // period, so initials survive. Without the period, a real attendee named
+    // "J.M. Short" was written into HubSpot as "J.m. Short", which is how his
+    // name would then have appeared in every email we sent him.
+    .replace(/(^|[\s'\-.])([a-z])/g, (_, boundary, letter) => boundary + letter.toUpperCase());
 }
 
 /** Trims and collapses whitespace. Used for company, title, city and so on. */

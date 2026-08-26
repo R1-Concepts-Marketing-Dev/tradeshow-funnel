@@ -75,7 +75,9 @@ export function buildReport() {
             .map((d) => `${d.platform} (${d.status})${d.testMode ? " **[TEST]**" : ""}`)
             .join(", ")
         : "—";
-      const flag = audience.status === "active" ? "" : " _(retired)_";
+      const flag =
+        (audience.status === "active" ? "" : " _(retired)_") +
+        (audience.testMode ? " **[TEST]**" : "");
       lines.push(
         `| **${audience.name}**${flag}<br>\`${audience.id}\` ` +
           `| ${isGeo ? "geo" : "list"} ` +
@@ -98,7 +100,11 @@ export function buildReport() {
       lines.push(`### ${audience.name}`);
       lines.push("");
       lines.push(`- **ID:** \`${audience.id}\``);
-      lines.push(`- **Status:** ${audience.status}`);
+      lines.push(
+        `- **Status:** ${audience.status}${
+          audience.testMode ? " — **created in test mode; it does not exist in HubSpot**" : ""
+        }`
+      );
       lines.push(`- **Purpose:** ${audience.purpose || "_not recorded_"}`);
       lines.push(`- **Created:** ${day(audience.createdAt)} by ${audience.createdBy}`);
       lines.push(`- **Type:** ${audience.type === "geo" ? "geo — a place and a time window, no contact data" : "list — contacts we hold details for"}`);

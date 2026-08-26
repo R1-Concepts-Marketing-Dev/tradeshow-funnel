@@ -88,12 +88,14 @@ async function request(method, path, body, { retries = 4 } = {}) {
   // added later cannot forget it. Test mode has to be a property of the
   // tool, not a discipline.
   if (isWrite(method, path) && loadConfig().testMode) {
+    // Deliberately generic: this function has no idea whether it is being
+    // called from an import, an audience, or setup, and inventing a specific
+    // story here means telling some callers something untrue.
     throw new Error(
       `Test mode is on, so this was not sent to HubSpot:\n` +
         `  ${method} ${path}\n\n` +
-        `Everything up to this point ran for real — the file was read, contacts\n` +
-        `were merged and counted, and the preview is accurate. Only the write\n` +
-        `was refused.\n\n` +
+        `Everything before this point ran for real, against live HubSpot data.\n` +
+        `Only the write was refused.\n\n` +
         `Turn it off in .env (TSF_TEST_MODE=false) when you are ready.`
     );
   }

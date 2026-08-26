@@ -210,7 +210,7 @@ function renderAudiences() {
         <td>
           <div class="aud-name">${esc(audience.name)}${
         audience.status !== "active" ? ' <span class="chip retired">retired</span>' : ""
-      }</div>
+      }${audience.testMode ? ' <span class="chip thin">test</span>' : ""}</div>
           <div class="aud-id">${esc(audience.id)}</div>
         </td>
         <td>${brandChip(audience.brand)}</td>
