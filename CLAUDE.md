@@ -47,6 +47,28 @@ patterns and masked examples are sent — never contact data. If someone asks
 whether uploading a list sends it to an API, the answer is no, and
 `test/columnAI.test.js` is the proof.
 
+## Uploading an audience to an ad platform
+
+`tsf audience export --id <audience> --platform <google-ads|meta|tiktok|linkedin>`
+writes a CSV formatted for that platform. The rules are a table in
+`src/adPlatforms.js`; `docs/AD-PLATFORMS.md` explains them.
+
+Two things worth stating when this comes up:
+
+- **The platforms disagree in ways that do not error.** Google wants
+  `Country` = `US`, Meta wants `country` = `us`. Google leaves ZIP readable
+  even in a hashed file; Meta hashes it. A wrong file uploads fine and
+  matches almost nobody.
+- **Plain text is the default and that is deliberate.** Every platform
+  hashes in the browser before sending, so letting them do it applies their
+  normalisation rather than ours. `--hash` is for files that leave the machine.
+
+Exports exclude opted-out, hard-bounced and role-inbox contacts, and say how
+many of each. Every export is logged as `audience.exported`, so what went to
+which platform and how big it was stays answerable.
+
+A geo audience cannot be exported — it has no people in it. That is not a
+bug to fix; say so and point at the radius and dates instead.
 ## Brands come first
 
 Every audience belongs to **one** brand: `r1` (R1 Concepts) or `dfc` (Dynamic

@@ -226,6 +226,100 @@ function stat(key, value, sub) {
 // Audience detail drawer
 // ---------------------------------------------------------------------------
 
+/**
+ * The export panel in the audience drawer.
+ *
+ * A geo audience has no people in it, so it gets an explanation rather than
+ * a disabled button nobody can interpret.
+ */
+function renderExportSection(audience) {
+  if (audience.type === "geo") {
+    return `<section>
+      <h4>Export for an ad platform</h4>
+      <p class="hint">This is a geo audience — a place and a date window, not a list
+      of people. There is nothing to upload. Target it with the radius and dates
+      in the spec above.</p>
+    </section>`;
+  }
+
+  const specs = state.adPlatformSpecs || [];
+  const size = audience.sizeHistory?.at(-1)?.size ?? 0;
+
+  return `<section>
+    <h4>Export for an ad platform</h4>
+    <p class="hint">Builds a CSV with that platform's exact column names and
+    formatting. Opted-out, hard-bounced and shared mailboxes are left out.</p>
+
+    <div class="export-grid">
+      ${specs
+        .map((spec) => {
+          // Compared against list size, which is an upper bound — the file is
+          // always smaller once exclusions run. Flagging early is the point.
+          const short = size < spec.minRows;
+          return `<button class="export-card${short ? " short" : ""}" data-platform="${esc(spec.id)}">
+            <span class="export-name">${esc(spec.label.split(" — ")[0])}</span>
+            <span class="export-cols">${esc(spec.columns.join(", "))}</span>
+            <span class="export-floor">${
+              short
+                ? `needs ${fmt(spec.minRows)} — this list has ${fmt(size)}`
+                : `minimum ${fmt(spec.minRows)} · suggested ${fmt(spec.recommendedRows)}`
+            }</span>
+          </button>`;
+        })
+        .join("")}
+    </div>
+
+    <label class="export-opt">
+      <input type="checkbox" id="export-hash">
+      SHA-256 the file — only needed if it is leaving this machine. Each platform
+      hashes it in your browser anyway, and letting them do it matches slightly better.
+    </label>
+
+    <div id="export-out"></div>
+  </section>`;
+}
+
+/** What came back after building a file: what is in it, and what to do next. */
+function renderExportResult(summary) {
+  const excluded = Object.entries(summary.excluded || {});
+
+  const verdict = !summary.clearsMinimum
+    ? `<div class="notice bad"><b>${fmt(summary.rows)} rows is under the ${fmt(summary.minRows)} minimum.</b>
+       The platform will accept this file and the audience will not deliver. Pool more
+       shows into one audience, or target the venue by geography instead.</div>`
+    : !summary.clearsRecommended
+      ? `<div class="notice warn"><b>Above the minimum, below the ${fmt(summary.recommendedRows)} suggested.</b>
+         Expect thin delivery.</div>`
+      : `<div class="notice good"><b>${fmt(summary.rows)} rows — clears this platform\u2019s floor.</b></div>`;
+
+  return `
+    ${verdict}
+    ${
+      summary.headersUnverified
+        ? `<div class="notice warn">This platform does not publish its column headers.
+           Download its own template and check the header row before uploading.</div>`
+        : ""
+    }
+    <table class="grid compact">
+      <tbody>
+        <tr><td>In HubSpot</td><td class="right num">${fmt(summary.inHubSpot)}</td></tr>
+        ${excluded
+          .map(
+            ([reason, count]) =>
+              `<tr class="sub"><td>− ${esc(reason)}</td><td class="right num">${fmt(count)}</td></tr>`
+          )
+          .join("")}
+        <tr><td><b>In the file</b></td><td class="right num"><b>${fmt(summary.rows)}</b></td></tr>
+        <tr class="sub"><td>with email</td><td class="right num">${fmt(summary.withEmail)}</td></tr>
+        <tr class="sub"><td>with phone</td><td class="right num">${fmt(summary.withPhone)}</td></tr>
+      </tbody>
+    </table>
+    <p class="hint export-path">${esc(summary.file || "")}</p>
+    ${(summary.notes || [])
+      .map((note) => `<p class="hint">· ${esc(note)}</p>`)
+      .join("")}
+  `;
+}
 function openDrawer(id) {
   const audience = state.audiences.find((a) => a.id === id);
   if (!audience) return;
@@ -295,6 +389,8 @@ function openDrawer(id) {
 
     ${sizeSection}
 
+    ${renderExportSection(audience)}
+
     <section>
       <h4>Where it is used</h4>
       ${
@@ -351,6 +447,45 @@ function openDrawer(id) {
   $("#scrim").hidden = false;
 
   $("#drawer-close").onclick = closeDrawer;
+
+  // One button per platform. Building a file hits HubSpot live, so it can take
+  // a moment on a big audience — say so rather than looking frozen.
+  for (const button of $$(".export-card")) {
+    button.onclick = () =>
+      run(async () => {
+        const platform = button.dataset.platform;
+        const out = $("#export-out");
+        out.innerHTML = '<p class="hint">Reading the audience from HubSpot…</p>';
+        let summary;
+        try {
+          summary = await api("/api/audiences/export", {
+            id: audience.id,
+            platform,
+            hash: $("#export-hash").checked,
+          });
+        } catch (error) {
+          out.innerHTML = `<div class="notice bad">${esc(error.message)}</div>`;
+          throw error;
+        }
+
+        // The file exists from here on. Everything below is housekeeping, and
+        // none of it is allowed to replace the result with an error — the
+        // counts are the reason someone pressed the button, and an export that
+        // worked must never look like one that failed.
+        out.innerHTML = renderExportResult(summary);
+        toast(
+          `${fmt(summary.rows)} rows written for ${platform}`,
+          summary.clearsMinimum ? "good" : "warn"
+        );
+
+        try {
+          await loadState();
+        } catch {
+          // Stale counts elsewhere in the UI are worth a page refresh, not a
+          // scary message on top of a file that built correctly.
+        }
+      });
+  }
   $("#dest-save").onclick = () =>
     run(async () => {
       await api("/api/audiences/destination", {
@@ -563,6 +698,7 @@ const FIELD_LABELS = {
   city: "City",
   state: "State",
   country: "Country",
+  zip: "ZIP / postal code",
   website: "Website",
 };
 
@@ -1105,6 +1241,11 @@ const ACTION_TEXT = {
   "audience.destination_set": (e) =>
     `<b>${esc(e.audienceName)}</b> → ${esc(e.platform)} is <i>${esc(e.status)}</i>`,
   "audience.retired": (e) => `<b>${esc(e.audienceName)}</b> retired at ${fmt(e.finalSize)}`,
+  "audience.exported": (e) =>
+    `<b>${esc(e.audienceName)}</b> exported for ${esc(e.platform)}: ${fmt(e.rows)} rows` +
+    `${e.excluded ? `, ${fmt(e.excluded)} left out` : ""}` +
+    `${e.hashed ? ", hashed" : ""}` +
+    `${e.clearsMinimum ? "" : " — below the platform minimum"}`,
   "import.committed": (e) =>
     `${esc(e.file)} → ${esc(e.showId)} / ${esc(e.source)}: ${fmt(e.created)} created, ${fmt(
       e.updated

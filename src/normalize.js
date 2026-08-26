@@ -100,6 +100,21 @@ export function companyDomain(emailOrUrl) {
 }
 
 /**
+ * A postal code, tidied but not reinterpreted.
+ *
+ * Deliberately does NOT strip to five digits — that is a US assumption, and a
+ * Canadian or UK code would be destroyed by it. Each ad platform wants a
+ * different shape, so trimming happens at export time (src/adPlatforms.js)
+ * where we know which platform is asking.
+ *
+ * Leading zeros survive because src/readfile.js reads sheets with raw:false.
+ * "01234" here means Massachusetts, not the number 1234.
+ */
+export function normalizePostalCode(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
  * Normalises one raw spreadsheet row into the shape the rest of the tool uses.
  *
  * @param {object} row     raw values, already mapped to our field names
@@ -131,6 +146,7 @@ export function normalizeRow(row) {
       companyDomain: companyDomain(row.website || email),
       jobTitle: normalizeText(row.jobTitle),
       city: normalizeText(row.city),
+      zip: normalizePostalCode(row.zip),
       state: normalizeText(row.state),
       country: normalizeText(row.country),
       // Anything the organizer sent that we do not have a home for. Kept so a

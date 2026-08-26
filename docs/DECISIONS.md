@@ -391,6 +391,64 @@ hostname, which is the point at which the passphrase should be deleted.
 
 ---
 
+## Ad-platform formats are a table, and the differences are asserted
+
+Four platforms want the same handful of facts and disagree about almost all
+of it. The same contact, for Google and for Meta:
+
+| | Google Ads | Meta |
+|---|---|---|
+| Email header | `Email` | `email` |
+| `O'Brien` | `o'brien` | `obrien` |
+| Country | `US` | `us` |
+| ZIP hashed? | never | yes |
+
+None of those differences produce an error. The upload is accepted and
+matches a fraction of who it should, and there is no signal that anything
+went wrong. So the rules live in `src/adPlatforms.js` as data, and
+`test/adPlatforms.test.js` asserts the `US` / `us` divergence directly
+rather than leaving it implied — a test that only checks each platform in
+isolation would still pass if someone unified them.
+
+### Plain text is the default
+
+All four hash the file in the browser before uploading. Letting them do it
+means their normalisation applies rather than ours, which matches slightly
+better and means a bug here cannot cost match rate. `--hash` exists for
+files that leave the machine.
+
+Where we do hash, it happens strictly after normalisation. Hashing
+`Dana@X.com ` rather than `dana@x.com` yields an unrelated value and a 0%
+match; that ordering is pinned by a test.
+
+### Memberships, not search
+
+`fetchAudienceContacts` reads HubSpot list memberships rather than running a
+CRM search. Search stops paging at 10,000 results. The pooled
+"Trade Show Universe" audience is designed to exceed that, and a silently
+truncated upload is the worst outcome available here. Verified against a
+13,607-member list: memberships page all the way through.
+
+### The exporter repairs US ZIPs
+
+14% of the ZIPs in the live portal are missing a leading zero — `8052`
+instead of `08052` — from a spreadsheet somewhere upstream. A US ZIP is
+always exactly five digits, so padding is safe and recovers a column that
+otherwise matches nobody. It is never applied outside the US, where length
+guarantees nothing.
+
+### Who is excluded, and why it is not the email rule
+
+Opted-out, hard-bounced and role-inbox contacts are left out of every
+export. Opt-out is the one that matters: someone who asked not to be
+marketed to did not mean "except on Facebook". The other two are match-rate
+hygiene. On a real 13,607-contact list this removed 1,491 rows.
+
+Nothing is deleted or edited. Exclusion is a decision about one file, made
+fresh each time.
+
+---
+
 ## Several files are one batch
 
 A show arrives as three or four files: pre-show roster, badge retrieval export,

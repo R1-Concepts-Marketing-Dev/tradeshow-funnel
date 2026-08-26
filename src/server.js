@@ -21,6 +21,8 @@ import * as registry from "./registry.js";
 import * as audiences from "./audiences.js";
 import * as ingest from "./ingest.js";
 import * as columnAI from "./columnAI.js";
+import * as adPlatforms from "./adPlatforms.js";
+import { exportAudience } from "./exportAudience.js";
 import * as geo from "./geo.js";
 import * as brands from "./brands.js";
 import * as campaigns from "./campaigns.js";
@@ -53,6 +55,17 @@ const ROUTES = {
     history: registry.readHistory({ limit: 200 }),
     sources: ingest.SOURCES,
     platforms: Object.keys(audiences.PLATFORM_FLOORS),
+    // What each ad platform's file looks like, so the drawer can say
+    // what an export will contain before anyone builds one.
+    adPlatformSpecs: Object.entries(adPlatforms.PLATFORMS).map(([id, p]) => ({
+      id,
+      label: p.label,
+      columns: p.columns.map((c) => c.header),
+      minRows: p.minRows,
+      recommendedRows: p.recommendedRows,
+      notes: p.notes,
+      headersUnverified: Boolean(p.headersUnverified),
+    })),
     campaignTypes: campaigns.CAMPAIGN_TYPES,
   }),
 
@@ -474,6 +487,23 @@ const ROUTES = {
         });
     writeReport();
     return { refreshed: result };
+  },
+
+  /**
+   * Builds an ad-platform file for one audience.
+   *
+   * Always runs against HubSpot live rather than the cached size, because a
+   * file built from a stale number is the kind of thing nobody checks.
+   */
+  "POST /api/audiences/export": async (body) => {
+    const { summary } = await exportAudience({
+      audienceId: body.id,
+      platform: body.platform,
+      hash: Boolean(body.hash),
+      includeOptedOut: Boolean(body.includeOptedOut),
+      write: body.dryRun !== true,
+    });
+    return summary;
   },
 
   "POST /api/audiences/destination": (body) => {

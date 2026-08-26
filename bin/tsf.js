@@ -932,6 +932,94 @@ const COMMANDS = {
     },
   },
 
+  "audience export": {
+    summary: "Write an audience as a CSV formatted for one ad platform.",
+    options: {
+      id: { type: "string" },
+      platform: { type: "string" },
+      hash: { type: "boolean", default: false },
+      "include-opted-out": { type: "boolean", default: false },
+      out: { type: "string", default: "" },
+      "dry-run": { type: "boolean", default: false },
+    },
+    async run({ values }) {
+      const { PLATFORMS } = await import("../src/adPlatforms.js");
+
+      // Listing the platforms beats an error message nobody can act on.
+      if (!values.platform || !PLATFORMS[values.platform]) {
+        console.log("\n  Which platform? One of:\n");
+        for (const [id, platform] of Object.entries(PLATFORMS)) {
+          console.log(`    ${id.padEnd(12)} ${platform.label}`);
+        }
+        console.log("\n  tsf audience export --id <audience> --platform meta\n");
+        process.exitCode = 1;
+        return;
+      }
+      require_(values, ["id"]);
+
+      const { exportAudience } = await import("../src/exportAudience.js");
+      const { summary } = await exportAudience({
+        audienceId: values.id,
+        platform: values.platform,
+        hash: values.hash,
+        includeOptedOut: values["include-opted-out"],
+        outDir: values.out || undefined,
+        write: !values["dry-run"],
+        onProgress: (progress) => {
+          // Every 1,000, not every page — a 13,000-member list would otherwise
+          // print 137 lines into any terminal that does not honour a carriage
+          // return, which is most of the places this output gets pasted.
+          if (progress.stage === "members" && progress.count && progress.count % 1000 === 0) {
+            process.stdout.write(`\r  reading members… ${num(progress.count)}`);
+          }
+          if (progress.stage === "details") {
+            process.stdout.write(`\r  reading ${num(progress.total)} contacts…        \n`);
+          }
+        },
+      });
+
+      console.log(`
+  ${summary.audienceName}  (${summary.brandName})
+  ${summary.platformLabel}${summary.hashed ? ", SHA-256 hashed" : ", plain text"}
+`);
+      console.log(`    in HubSpot        ${num(summary.inHubSpot)}`);
+      for (const [reason, count] of Object.entries(summary.excluded)) {
+        console.log(`      - ${num(count).padStart(6)}  ${reason}`);
+      }
+      console.log(`    in the file       ${num(summary.rows)}`);
+      console.log(`      with email      ${num(summary.withEmail)}`);
+      console.log(`      with phone      ${num(summary.withPhone)}`);
+
+      // The number that decides whether the upload does anything at all.
+      if (!summary.clearsMinimum) {
+        console.log(`
+  !  ${num(summary.rows)} rows is below this platform\u2019s minimum of ${num(summary.minRows)}.
+     The upload will be accepted and the audience will not deliver. Pool more
+     shows into this audience, or target the show venue by geography instead.`);
+      } else if (!summary.clearsRecommended) {
+        console.log(`
+  Note: above the ${num(summary.minRows)} minimum but below the ${num(summary.recommendedRows)} this
+        platform suggests. Expect thin delivery.`);
+      }
+
+      if (summary.headersUnverified) {
+        console.log(`
+  !  This platform does not publish its column headers. Download the template
+     from its own interface and check the header row before uploading.`);
+      }
+
+      console.log("");
+      for (const note of summary.notes) console.log(`  \u00b7 ${note}`);
+
+      console.log(
+        summary.file
+          ? `\n  Written to ${summary.file}\n`
+          : "\n  Dry run — nothing written.\n"
+      );
+      if (summary.file) writeReport();
+    },
+  },
+
   "audience destination": {
     summary: "Record where an audience is being used (google-ads, meta, tiktok, linkedin, hubspot-email).",
     options: {

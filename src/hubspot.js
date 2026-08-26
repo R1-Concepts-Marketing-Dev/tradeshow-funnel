@@ -161,6 +161,54 @@ export async function createList({ name, processingType = "MANUAL", filterBranch
   return response?.list || response;
 }
 
+/**
+ * Every record ID in a list, following the paging cursor to the end.
+ *
+ * Why memberships and not a search: the CRM search API stops paging at 10,000
+ * results. A pooled "Trade Show Universe" audience passes that, and a truncated
+ * ad-platform upload is exactly the kind of wrong-but-plausible number this
+ * tool exists to prevent. Memberships have no such cap.
+ *
+ * @param {string} listId
+ * @param {function} onProgress  called with the running count, for long pulls
+ */
+export async function listMemberships(listId, onProgress = () => {}) {
+  const ids = [];
+  let after = null;
+
+  do {
+    const query = new URLSearchParams({ limit: "100" });
+    if (after) query.set("after", after);
+    const response = await get(`/crm/v3/lists/${listId}/memberships?${query}`);
+
+    for (const row of response?.results || []) {
+      // The field is recordId on this endpoint, but tolerate id in case a
+      // future version renames it rather than silently returning nothing.
+      const id = row.recordId ?? row.id;
+      if (id) ids.push(String(id));
+    }
+
+    after = response?.paging?.next?.after || null;
+    onProgress(ids.length);
+  } while (after);
+
+  return ids;
+}
+
+/** Reads contacts by their HubSpot record IDs, in batches. */
+export async function batchReadContacts(ids, propertiesToReturn) {
+  const found = [];
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const chunk = ids.slice(i, i + BATCH_SIZE);
+    const response = await post("/crm/v3/objects/contacts/batch/read", {
+      properties: propertiesToReturn,
+      inputs: chunk.map((id) => ({ id: String(id) })),
+    });
+    found.push(...(response?.results || []));
+  }
+  return found;
+}
+
 /** Fetches one list, including its current size. */
 export async function getList(listId) {
   const response = await get(`/crm/v3/lists/${listId}?includeFilters=true`);

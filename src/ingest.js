@@ -38,6 +38,9 @@ export const COLUMN_GUESSES = {
   jobTitle: ["title", "job title", "jobtitle", "position", "role"],
   city: ["city", "town"],
   state: ["state", "province", "region"],
+  // Worth capturing even though nothing displays it: Google and Meta both
+  // use postal code to improve match rate on an emailed list.
+  zip: ["zip", "zip code", "zipcode", "postal code", "postcode", "postal"],
   country: ["country"],
   website: ["website", "url", "web", "domain"],
   // Last on purpose. Plenty of files have one "Attendee Name" column instead
@@ -64,6 +67,7 @@ export const CORE_KEYWORDS = {
   jobTitle: ["job title", "jobtitle", "position", "role"],
   city: ["city", "town"],
   state: ["state", "province"],
+  zip: ["zip", "postal", "postcode"],
   country: ["country"],
   website: ["website", "domain"],
   fullName: ["full name", "attendee name", "contact name", "registrant name"],
@@ -354,6 +358,7 @@ function toHubspotProperties(merged, key) {
     company: merged.company || undefined,
     jobtitle: merged.jobTitle || undefined,
     city: merged.city || undefined,
+    zip: merged.zip || undefined,
     state: merged.state || undefined,
     country: merged.country || undefined,
     ts_sources: merged.ts_sources || undefined,
