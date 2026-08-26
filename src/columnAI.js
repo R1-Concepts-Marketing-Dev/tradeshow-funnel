@@ -118,6 +118,22 @@ const FIELDS = Object.keys(COLUMN_GUESSES);
  * A strict tool rather than free text, so the answer is always the right
  * shape and never needs parsing out of prose.
  */
+/**
+ * A strict tool rather than free text, so the answer is always the right
+ * shape and never needs parsing out of prose.
+ *
+ * WHY mapping IS AN ARRAY AND NOT AN OBJECT
+ *
+ * It was an object — one optional property per field — and under strict mode
+ * that quietly wrecked the whole response. The model could not cleanly express
+ * "this field has no column", so it returned a sparse mapping (missing an
+ * obviously phone-shaped column) AND the literal word "placeholder" as the
+ * summary. Nothing errored; the answer was just bad.
+ *
+ * As a list of {field, header} pairs, "omit it" is simply "do not add an
+ * entry", which the schema expresses naturally. Same model, same prompt,
+ * correct mapping and a real summary. Do not change this back.
+ */
 const MAPPING_TOOL = {
   name: "report_mapping",
   description: "Report which spreadsheet column holds which contact field.",
@@ -127,11 +143,18 @@ const MAPPING_TOOL = {
     additionalProperties: false,
     properties: {
       mapping: {
-        type: "object",
-        additionalProperties: false,
+        type: "array",
         description:
-          "Our field name -> the exact column header it comes from. Omit a field entirely if no column holds it. Never invent a header.",
-        properties: Object.fromEntries(FIELDS.map((f) => [f, { type: "string" }])),
+          "One entry per column you can confidently place. Leave a field out entirely if no column holds it. Never invent a header.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            field: { type: "string", enum: FIELDS },
+            header: { type: "string", description: "The exact header text from the file." },
+          },
+          required: ["field", "header"],
+        },
       },
       splitFullName: {
         type: ["string", "null"],
@@ -146,7 +169,7 @@ const MAPPING_TOOL = {
       summary: {
         type: "string",
         description:
-          "Two or three plain sentences for someone who does not know what a column mapping is. Say what you found and what you are ignoring. No jargon.",
+          "Two or three real sentences about THIS file, for someone who does not know what a column mapping is. How many people, which column you used for email and phone, what you ignored. Never filler.",
       },
       warnings: {
         type: "array",
@@ -172,6 +195,8 @@ just because its examples are masked.
 
 Rules:
 - Only ever name a header that appears in the input. Never invent one.
+- Map EVERY column you can confidently place. A phone-shaped column is the
+  phone; leaving it out costs match rate on every ad platform later.
 - A column can be used once. If two columns could be email, pick the one more
   likely to be a work address, and warn about the other.
 - Never map a column that is an opt-out, consent, subscription or bounce flag to
@@ -180,8 +205,50 @@ Rules:
 - If nothing looks like an email or a phone, say the file may not be a contact
   list, set confidence low, and explain what you think it is instead.
 
-Write the summary for a marketer, not an engineer. "Found 2,847 people, using
-'Badge Email' for email and 'Cell' for phone" — not "mapped email->Badge Email".`;
+WHAT THE TOOL ALREADY HANDLES — never tell anyone to do these by hand:
+- Phone numbers are converted to E.164 (+1...) automatically at export.
+- Emails are lowercased and trimmed; Gmail dots are handled for Google.
+- Country and state spellings are turned into codes; US ZIPs get their leading
+  zeros restored.
+- A single full-name column is split into first and last.
+- Opted-out, hard-bounced and role inboxes are excluded from ad uploads.
+Warn only about things a PERSON has to decide or fix.
+
+The summary is read by a marketer who has never mapped a column. Write real
+sentences about THIS file — "Found 2,847 people, using 'Badge Email' for email
+and 'Cell' for phone" — not "mapped email->Badge Email", and never filler.`;
+
+/**
+ * Turns Claude's list of {field, header} pairs into the mapping object the rest
+ * of the tool uses, discarding anything that cannot be true.
+ *
+ * This is the safety net, and it matters more than it looks. A header that is
+ * not in the file would silently map a field to nothing — an import with no
+ * email addresses that looks completely normal until the audience comes out
+ * empty. That exact failure is why the rule-based guesser has a second pass.
+ *
+ * Rules, in order: the header must really exist, one column can only feed one
+ * field, and the first claim on a field wins.
+ *
+ * @param {Array<{field: string, header: string}>} pairs
+ * @param {string[]} headers  the headers actually in the file
+ */
+export function toMapping(pairs, headers) {
+  const known = new Set(headers);
+  const taken = new Set();
+  const mapping = {};
+
+  for (const entry of pairs || []) {
+    const field = entry?.field;
+    const header = entry?.header;
+    if (!field || !header) continue;
+    if (!known.has(header) || taken.has(header) || mapping[field]) continue;
+    mapping[field] = header;
+    taken.add(header);
+  }
+
+  return mapping;
+}
 
 /**
  * Asks Claude to map the columns.
@@ -200,6 +267,13 @@ export async function suggestMapping(table, { filename = "upload.csv" } = {}) {
   const brief = [
     `File: ${filename}`,
     table.sheetName ? `Sheet read: ${table.sheetName}` : null,
+    // Worth saying out loud: a workbook with four tabs where we read one is a
+    // real way to import a third of a roster and never notice.
+    (table.sheets || []).length > 1
+      ? `Other sheets in this workbook, NOT read: ${(table.sheets || [])
+          .filter((sheet) => sheet !== table.sheetName)
+          .join(", ")}`
+      : null,
     ...(table.notes || []),
     `Rows: ${table.rows.length}`,
     "",
@@ -231,12 +305,7 @@ export async function suggestMapping(table, { filename = "upload.csv" } = {}) {
   const call = response.content.find((block) => block.type === "tool_use");
   if (!call) return null;
 
-  // Never trust a header that is not actually in the file.
-  const known = new Set(table.headers);
-  const mapping = {};
-  for (const [field, header] of Object.entries(call.input.mapping || {})) {
-    if (known.has(header)) mapping[field] = header;
-  }
+  const mapping = toMapping(call.input.mapping, table.headers);
 
   const splitFullName =
     call.input.splitFullName && known.has(call.input.splitFullName)

@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mask, profileColumns } from "../src/columnAI.js";
+import { mask, profileColumns, toMapping } from "../src/columnAI.js";
 
 test("an email is masked down to its shape", () => {
   const masked = mask("dana.whitfield@brakeworld.com");
@@ -80,4 +80,57 @@ test("only three examples per column ever leave", () => {
   const rows = Array.from({ length: 500 }, (_, i) => ({ Email: `p${i}@x.com` }));
   const [column] = profileColumns(["Email"], rows);
   assert.equal(column.examples.length, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Turning Claude's answer into a mapping we will actually import with
+// ---------------------------------------------------------------------------
+
+test("a header Claude invented is discarded, not mapped to nothing", () => {
+  // The failure this prevents: email maps to a column that does not exist, the
+  // import runs, every row is rejected for having no email, and the counts look
+  // plausible enough that nobody checks.
+  const mapping = toMapping(
+    [
+      { field: "email", header: "Badge Email" },
+      { field: "phone", header: "Mobile Number" }, // not in the file
+    ],
+    ["Badge Email", "Cell"]
+  );
+  assert.deepEqual(mapping, { email: "Badge Email" });
+});
+
+test("one column cannot feed two fields", () => {
+  const mapping = toMapping(
+    [
+      { field: "email", header: "Contact" },
+      { field: "phone", header: "Contact" },
+    ],
+    ["Contact"]
+  );
+  assert.deepEqual(mapping, { email: "Contact" });
+});
+
+test("the first claim on a field wins", () => {
+  const mapping = toMapping(
+    [
+      { field: "email", header: "Work Email" },
+      { field: "email", header: "Personal Email" },
+    ],
+    ["Work Email", "Personal Email"]
+  );
+  assert.deepEqual(mapping, { email: "Work Email" });
+});
+
+test("malformed entries are skipped rather than throwing", () => {
+  const mapping = toMapping(
+    [null, {}, { field: "email" }, { header: "Cell" }, { field: "phone", header: "Cell" }],
+    ["Cell"]
+  );
+  assert.deepEqual(mapping, { phone: "Cell" });
+});
+
+test("no answer at all gives an empty mapping, not a crash", () => {
+  assert.deepEqual(toMapping(undefined, ["Email"]), {});
+  assert.deepEqual(toMapping([], ["Email"]), {});
 });
