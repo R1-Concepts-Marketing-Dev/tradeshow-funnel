@@ -25,6 +25,7 @@
 // EDIT THIS FILE IF: you move to a named tunnel, or swap cloudflared for
 // something else. The rest of the tool does not know this file exists.
 
+import fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { loadConfig } from "./config.js";
 import * as auth from "./auth.js";
@@ -32,14 +33,44 @@ import * as auth from "./auth.js";
 /** A trycloudflare hostname, as it appears in cloudflared's output. */
 const URL_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 
-/** Is cloudflared installed and runnable? */
+/**
+ * Where winget and Homebrew put cloudflared.
+ *
+ * Needed because Windows does not refresh PATH in terminals that are already
+ * open. Someone runs `winget install`, watches it succeed, runs `tsf tunnel` in
+ * the same window, and is told cloudflared is not installed. Checking the known
+ * locations turns that into a non-event.
+ */
+const KNOWN_LOCATIONS = [
+  "C:/Program Files (x86)/cloudflared/cloudflared.exe",
+  "C:/Program Files/cloudflared/cloudflared.exe",
+  "/opt/homebrew/bin/cloudflared",
+  "/usr/local/bin/cloudflared",
+];
+
+/**
+ * Is cloudflared installed and runnable, and what do we call it?
+ *
+ * @returns {{ok: boolean, command?: string, version?: string}}
+ */
 export function findCloudflared() {
   // No shell: passing args through a shell on Windows concatenates them
-  // unescaped, which Node now warns about. cloudflared installs as a real .exe
-  // on PATH, so spawning it directly works and a missing binary just errors.
-  const probe = spawnSync("cloudflared", ["--version"], { encoding: "utf8" });
-  if (probe.status === 0) return { ok: true, version: (probe.stdout || "").trim() };
-  return { ok: false };
+  // unescaped, which Node now warns about.
+  const tryCommand = (command) => {
+    try {
+      const probe = spawnSync(command, ["--version"], { encoding: "utf8" });
+      if (probe.status === 0) return { ok: true, command, version: (probe.stdout || "").trim() };
+    } catch {
+      // Not there. Fall through to the next candidate.
+    }
+    return null;
+  };
+
+  return (
+    tryCommand("cloudflared") ||
+    KNOWN_LOCATIONS.filter((location) => fs.existsSync(location)).map(tryCommand).find(Boolean) ||
+    { ok: false }
+  );
 }
 
 /**
@@ -97,7 +128,12 @@ export function preflight() {
  */
 export function openQuickTunnel({ port, onLine = () => {}, timeoutMs = 45000 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("cloudflared", [
+    // The same binary preflight found, which may be a full path when PATH has
+    // not caught up with the install yet.
+    const found = findCloudflared();
+    const command = found.command || "cloudflared";
+
+    const child = spawn(command, [
       "tunnel",
       "--no-autoupdate",
       "--url",

@@ -247,15 +247,50 @@ const COMMANDS = {
       } else {
         console.log(`  Google Ads not set — show reports will have no paid search section`);
       }
-      console.log(`
-  Claude     ${
-        config.anthropic.apiKey
-          ? `${config.anthropic.model} — uploads get read and explained in English`
-          : "no key — columns are matched by name only, which still works"
-      }`);
+      console.log("");
       if (!config.anthropic.apiKey) {
-        console.log(`             Set ANTHROPIC_API_KEY to turn it on. Only column names and`);
-        console.log(`             masked value shapes are sent; contact details never leave.`);
+        console.log("  Claude     no key — columns are matched by name only, which still works");
+        console.log("             Add ANTHROPIC_API_KEY to .env to turn it on. Only column names");
+        console.log("             and masked value shapes are sent; contacts never leave.");
+      } else {
+        // Presence proves nothing. A revoked, mistyped or wrong-account key
+        // looks identical until someone uploads a file and the read silently
+        // falls back to name matching. So actually call the API.
+        //
+        // Listing models is free and checks both things that can be wrong:
+        // whether the key is accepted, and whether the configured model is
+        // one this account can reach.
+        try {
+          const { default: Anthropic } = await import("@anthropic-ai/sdk");
+          const client = new Anthropic({
+            apiKey: config.anthropic.apiKey,
+            baseURL: config.anthropic.baseUrl,
+          });
+          const models = await client.models.list({ limit: 100 });
+          const available = (models?.data || []).map((m) => m.id);
+          const wanted = config.anthropic.model;
+
+          if (available.includes(wanted)) {
+            console.log(`  Claude     working — ${wanted}`);
+            console.log("             Uploaded files get read and explained in plain English.");
+          } else {
+            console.log(`  Claude     ! key works, but this account cannot reach ${wanted}`);
+            console.log(`             Available: ${available.slice(0, 4).join(", ")}${available.length > 4 ? "…" : ""}`);
+            console.log("             Set TSF_ANTHROPIC_MODEL in .env to one of those.");
+          }
+        } catch (error) {
+          const status = error?.status;
+          const hint =
+            status === 401
+              ? "the key was rejected — check for a typo or a revoked key"
+              : status === 403
+                ? "the key is valid but not permitted to do this"
+                : status === 429
+                  ? "rate limited or out of credit"
+                  : error.message;
+          console.log(`  Claude     ! key is set but not usable: ${hint}`);
+          console.log("             Uploads still work; columns are matched by name only.");
+        }
       }
 
       const { authMode } = await import("../src/auth.js");
